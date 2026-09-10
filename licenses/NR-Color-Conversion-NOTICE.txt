@@ -1,0 +1,7 @@
+NR color conversion
+Upstream project: OptiScaler DLSSNR
+Source: https://github.com/Dagherbou/OptiScaler_DLSSNR/blob/dlss-neural-rendering/OptiScaler/shaders/dlssnr/precompile/dlssnr.hlsl
+License: GNU General Public License, version 3.
+https://github.com/Dagherbou/OptiScaler_DLSSNR/blob/dlss-neural-rendering/LICENSE
+The GPL-3.0 license text accompanies this notice.
+Upstream copyright remains with its respective authors.
