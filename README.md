@@ -21,7 +21,8 @@ These effect and performance examples are from the previous mod and show its old
 
 ![Previous mod: native motion vectors combined with frame generation](https://github.com/user-attachments/assets/459a24ee-18bd-4652-a0af-f277ebe79c58)
 
-![Uploading image.png…]()
+<img width="1546" height="1043" alt="image" src="https://github.com/user-attachments/assets/fc9a0998-79e0-47a5-8d91-0c429f6d7007" />
+
 
 
 ## Install and start a game
