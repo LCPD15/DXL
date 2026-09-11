@@ -21,7 +21,8 @@ DXL（DLSS eXtended Loader）基于我之前的 RE DLSS5 Load Mod 扩充，目�
 
 ![前作：原生运动矢量与帧生成配合的效果示例](https://github.com/user-attachments/assets/459a24ee-18bd-4652-a0af-f277ebe79c58)
 
-![DXL 配置界面示例](docs/images/dxl-interface.png)
+![Uploading image.png…]()
+
 
 ## 安装并启动游戏
 
