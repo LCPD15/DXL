@@ -1,27 +1,14 @@
-# DXL — DLSS eXtended Loader
+# DXL 快速使用指南
 
-[English](README.md) | **简体中文** · **版本 0.1**
+[English](DXL-Guide-EN.md) | **简体中文** · **版本 0.1**
 
 DXL（DLSS eXtended Loader）基于我之前的 RE DLSS5 Load Mod 扩充，目的是尽可能方便地在各类游戏中启用 DLSS NR。对于支持的游戏，工具可获取原生运动矢量并与帧生成配合，提供更高质量的效果；具体兼容性取决于游戏。
 
 [前作 GitHub](https://github.com/LCPD15/RE_DLSS5_Load_Mod) · [前作 Nexus Mods](https://www.nexusmods.com/onimushawayofthesword/mods/32) · [DXL 项目](https://github.com/LCPD15/DXL)
 
-[下载完整包](https://github.com/LCPD15/DXL/releases/latest) · [中文版在线说明](docs/DXL-Guide-ZH.md)
+[下载完整包](https://github.com/LCPD15/DXL/releases/latest)
 
-## 特征
-
-- **真实运动矢量**——利用支持游戏自身的 DLSS 运动数据，让时间处理跟随场景，减少闪烁。
-- **更高的帧速率**——降低神经渲染内部分辨率以节省 GPU 时间，同时保持图像清晰。
-- **无需任何配置**——不需要在游戏内安装任何dll、asi、addon文件，使用本工具启动游戏即可，默认快捷键在游戏内按Del开关效果，按End开关参数界面
-- **游戏内菜单**——无需离开游戏即可调整每个参数并查看调试信息。
-
-以下为前作的效果与性能示例；图中为旧版界面，DXL 默认快捷键为 Del / End。RE 引擎游戏的前置要求见下方安装说明。
-
-![前作：不同 NR 渲染缩放的画面与帧率对比](https://github.com/user-attachments/assets/b922778a-3d6e-4612-961a-fa8e3cfa08d0)
-
-![前作：原生运动矢量与帧生成配合的效果示例](https://github.com/user-attachments/assets/459a24ee-18bd-4652-a0af-f277ebe79c58)
-
-![DXL 配置界面示例](docs/images/dxl-interface.png)
+![DXL 配置界面示例](images/dxl-interface.png)
 
 ## 安装并启动游戏
 
@@ -62,4 +49,4 @@ Del：开关 NR  •  End：开关面板  •  Alt + F8：对当前游戏窗口�
 
 强度范围 0–1，边缘羽化默认 8，可缓和硬边界。识别效果可能不好，特别是二次元、遮挡和小物体；出现误识别或不自然边缘时，可关闭此功能。
 
-[构建与依赖](DEPENDENCIES.md) · [第三方组件](THIRD_PARTY_NOTICES.md) · [组件许可](LICENSE_STATUS.md)
+[构建与依赖](../DEPENDENCIES.md) · [第三方组件](../THIRD_PARTY_NOTICES.md) · [组件许可](../LICENSE_STATUS.md)

@@ -1,27 +1,14 @@
-# DXL — DLSS eXtended Loader
+# DXL Quick Start Guide
 
-**English** | [简体中文](README_ZH.md) · **Version 0.1**
+**English** | [简体中文](DXL-Guide-ZH.md) · **Version 0.1**
 
 DXL (DLSS eXtended Loader) expands on my previous RE DLSS5 Load Mod. It aims to make DLSS NR as easy as possible to enable across games. In supported games, it can use native motion vectors and work with frame generation for higher-quality results. Compatibility varies by game.
 
 [Previous mod on GitHub](https://github.com/LCPD15/RE_DLSS5_Load_Mod) · [Previous mod on Nexus Mods](https://www.nexusmods.com/onimushawayofthesword/mods/32) · [DXL project](https://github.com/LCPD15/DXL)
 
-[Download the complete package](https://github.com/LCPD15/DXL/releases/latest) · [English online guide](docs/DXL-Guide-EN.md)
+[Download the complete package](https://github.com/LCPD15/DXL/releases/latest)
 
-## Features
-
-- **Native motion vectors** — Uses the game's own DLSS motion data where supported, helping temporal processing follow the scene and reduce flicker.
-- **Higher frame rates** — Lower the internal neural rendering resolution to save GPU time while keeping the image clear.
-- **No configuration needed** — No DLL, ASI or addon files need to be installed in the game folder. Launch the game with this tool; by default, press Del in-game to toggle the effect and End to toggle the settings panel.
-- **In-game menu** — Adjust every parameter and view debug information without leaving the game.
-
-These effect and performance examples are from the previous mod and show its older interface. DXL defaults to Del / End. See the installation instructions below for RE Engine prerequisites.
-
-![Previous mod: image quality and frame rate at different NR render scales](https://github.com/user-attachments/assets/b922778a-3d6e-4612-961a-fa8e3cfa08d0)
-
-![Previous mod: native motion vectors combined with frame generation](https://github.com/user-attachments/assets/459a24ee-18bd-4652-a0af-f277ebe79c58)
-
-![DXL configuration example](docs/images/dxl-interface.png)
+![DXL configuration example](images/dxl-interface.png)
 
 ## Install and start a game
 
@@ -62,4 +49,4 @@ The complete package includes the recognition model. This feature starts off. En
 
 Strength ranges from 0 to 1. Mask feather defaults to 8 to soften edges. Recognition may be poor, especially for anime scenes, occlusion or small objects. Turn it off if it misidentifies objects or produces unnatural edges.
 
-[Build and dependencies](DEPENDENCIES.md) · [Third-party components](THIRD_PARTY_NOTICES.md) · [Component licenses](LICENSE_STATUS.md)
+[Build and dependencies](../DEPENDENCIES.md) · [Third-party components](../THIRD_PARTY_NOTICES.md) · [Component licenses](../LICENSE_STATUS.md)
