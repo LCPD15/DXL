@@ -82,6 +82,7 @@
         "默认 4，仅本游戏配置，重启游戏生效。": "Default: 4. Applies only to this game profile and takes effect after restarting the game.",
         "燕云十六声特调默认 8，仅本游戏配置，重启游戏生效。": "Where Winds Meet tuned default: 8. Applies only to this game profile and takes effect after restarting the game.",
         "RE引擎游戏需要先安装RE框架和ReShade才能正常使用。": "RE Engine games require REFramework and ReShade to be installed first for normal operation.",
+        "绝区零DX12启动参数：": "Zenless Zone Zero DX12 launch argument: ",
         "RE框架下载": "Download REFramework",
         "ReShade下载": "Download ReShade",
         '未加载': 'Not loaded',

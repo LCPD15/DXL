@@ -1,4 +1,11 @@
-﻿# 0.2
+# 0.3
+
+- 在 ZenlessZoneZero.exe 的配置页游戏名称右侧显示「绝区零DX12启动参数：-use-d3d12」，支持中英双语。
+- 按实际 EXE 文件名识别，忽略大小写；不自动修改已保存的启动参数。
+- Add a bilingual DX12 launch-argument note beside the game name for ZenlessZoneZero.exe: -use-d3d12.
+- Match the executable name case-insensitively; preserve saved launch arguments.
+
+# 0.2
 
 - Automatic startup checks for GitHub releases and verified local update packages.
 - Release notes, background download, deferred installation and automatic restart.

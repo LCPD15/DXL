@@ -1,4 +1,4 @@
-﻿// DXL core：被注入到游戏进程里的那一半。
+// DXL core：被注入到游戏进程里的那一半。
 //
 // 里程碑 2a 的目标是把**接管 present 路径**这件事做扎实并可验证，再往上叠 NGX：
 //   1. 拿到 DXGI 的 vtable 并打补丁（Present / Present1 / CreateSwapChainForHwnd）
@@ -2362,7 +2362,7 @@ static void UiMarkSave() {
 }
 
 // 产品版本号（面板标题行下方显示）
-static const char* kUiVersion = "0.2";
+static const char* kUiVersion = "0.3";
 
 // ---- 中英双语参数说明（复用自早期插件版，参考 NVIDIA DLSS5 文章措辞）----
 static const char* UiText(const char* zh, const char* en) { return g_state.uiLanguage == 2 ? en : zh; }

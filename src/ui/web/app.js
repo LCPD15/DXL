@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 // UI 侧维护整个配置模型（主题、快捷键、每游戏配置文件），宿主不解析它 —— 见
 // main.cpp 顶部的说明。
@@ -304,6 +304,7 @@ function needsReFrameworkSetup(profile) {
 }
 function renderProfileCompatibility(profile) {
     document.getElementById('reFrameworkSetup').hidden = !needsReFrameworkSetup(profile);
+    document.getElementById('zenlessDx12Setup').hidden = profileExeBasename(profile) !== 'zenlesszonezero.exe';
     const tuned = defaultFgThreshold(profile) === 8;
     document.getElementById('fgThresholdSummary').textContent = tuned
         ? '高级：FG 检测阈值（燕云特调默认 8）' : '高级：FG 检测阈值';
@@ -2424,7 +2425,7 @@ document.getElementById('openNgxDirBtn').addEventListener('click', () => {
 /* ---------------- 启动 ---------------- */
 
 // 版本号写在一处，别在 HTML 里硬编码（之前 HTML 里那个 v0.4.0 早就过期了）
-const APP_VERSION = 'v0.2';
+const APP_VERSION = 'v0.3';
 window.addEventListener('dxl-language-changed', () => { renderLog(); renderHotkeyHints(); renderAdvice(lastStatus); });
 document.getElementById('brandVersion').textContent = APP_VERSION;
 document.getElementById('projectLink').addEventListener('click', event => {

@@ -1,4 +1,4 @@
-﻿param([string]$OutDir = '', [ValidateSet('Full','Lean')][string]$Runtime = 'Lean', [switch]$Test, [switch]$ValidateOnly)
+param([string]$OutDir = '', [ValidateSet('Full','Lean')][string]$Runtime = 'Lean', [switch]$Test, [switch]$ValidateOnly)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'paths.ps1')
 $OutDir = Resolve-DxlOutput $OutDir
@@ -51,4 +51,4 @@ foreach ($entry in @(
 Stage (Join-Path $DependencyRoot 'dlss/LICENSE.txt') 'licenses/NVIDIA-RTX-SDK-LICENSE.txt'
 Stage (Join-Path $DependencyRoot 'webview2/licenses/LICENSE.txt') 'licenses/WebView2-LICENSE.txt'
 Stage (Join-Path $DependencyRoot 'webview2/licenses/NOTICE.txt') 'licenses/WebView2-NOTICE.txt'
-Write-Output "PASS DXL 0.2 complete build: $OutDir"
+Write-Output "PASS DXL 0.3 complete build: $OutDir"

@@ -1,5 +1,5 @@
 {
-  "version": "0.2",
+  "version": "0.3",
   "git_history_included": false,
   "runtime_or_model_binaries_included": false,
   "files": [
@@ -9,7 +9,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "4be03bca4081e217dee179c15ae9e4a3a5506b7bf31a00fadf692d18328d3dc6"
+      "sha256": "fb5d0b0aed5aeca44df5e2849016835f91dfeba5f17be47eb4d664f82e9e0b14"
     },
     {
       "path": "DEPENDENCIES.md",
@@ -21,7 +21,7 @@
     },
     {
       "path": "docs/DXL-Guide-EN.md",
-      "sha256": "38fba62fb52cd34a35e01d25ff953661f37110cf08176eb3dffa2b07a0406322"
+      "sha256": "7e68cdc9649b84b9a87f9eb0c203549c2ee89017bbcaab43d86548eb5222de58"
     },
     {
       "path": "docs/DXL-Guide-ZH.docx",
@@ -29,7 +29,7 @@
     },
     {
       "path": "docs/DXL-Guide-ZH.md",
-      "sha256": "0d71079df6ea45000ea34a70d04d40015744d43fe11418a61f730ca9f1fbf526"
+      "sha256": "cdc4bfbd2486d981bbb66813a483c5d7af6d5b876e66d75a922c841668a05521"
     },
     {
       "path": "docs/images/dxl-interface.png",
@@ -37,11 +37,11 @@
     },
     {
       "path": "docs/README_EN.md",
-      "sha256": "4051bca4532152479031862b64872f1963a7cdbab1a40e20e1d1987a56a8dcc5"
+      "sha256": "acdc4468e76f6d1ed57f5065c705e5fb3fcfa814c2cd80484afabaf6bf992b78"
     },
     {
       "path": "docs/README_ZH.md",
-      "sha256": "8d4eea5cd95f6c8bdb5e62835f03fbf1edd0e3908079abce6d3dd6285083e2f2"
+      "sha256": "972e2752ce85b3e9af169a2b5896cf58eeddf31d1c20b3b6aa06ba1db0d0bf2d"
     },
     {
       "path": "docs/UPDATES.md",
@@ -77,11 +77,11 @@
     },
     {
       "path": "README.md",
-      "sha256": "2f270eb66db04340b2d27db65b9cd99466d28b26618394d44f1b0f98d50289d5"
+      "sha256": "674c77e62a1f3ba75a094b2532e151367c10d77db3d9741e6be53b33fa658d91"
     },
     {
       "path": "README_ZH.md",
-      "sha256": "4724ccb66275840ba8595310585f0a254a8a1363895433f3c5e17b3ae9218763"
+      "sha256": "c5e6022eb0202f489202318a84e4c19bb8b2c81bf03417fd7b074e203e7277dc"
     },
     {
       "path": "scripts/audit_source.py",
@@ -101,7 +101,7 @@
     },
     {
       "path": "scripts/build_dxl.ps1",
-      "sha256": "9e0315763fd60bb45b3171eb7d82ca267b55d3bdf2836829771a08995969f8b0"
+      "sha256": "c5ddfca49049104e37613106204387bffd64b58483b1f6d17692882af4d45d55"
     },
     {
       "path": "scripts/build_launcher.ps1",
@@ -121,7 +121,7 @@
     },
     {
       "path": "scripts/export_source.py",
-      "sha256": "eb7f7c13f29864a0831b6108893e93fc1fdac02fddbe8d22c93ad2ea028449ac"
+      "sha256": "158c8a024e954b3ce084b743506dbaf33060b23ce2e04804efaf0f3687b1b972"
     },
     {
       "path": "scripts/fetch-deps.ps1",
@@ -137,7 +137,7 @@
     },
     {
       "path": "scripts/paths.ps1",
-      "sha256": "1d4679a251bc55df36459d9ee5e5858b86930e455678d762d2f94bf66733014d"
+      "sha256": "4ade6154c87cfd09616ccedf750dc9c21af4d52b83dd025f6b5d6ff996181e47"
     },
     {
       "path": "scripts/release_dxl.ps1",
@@ -233,7 +233,7 @@
     },
     {
       "path": "SOURCE_CODE.md",
-      "sha256": "2805eed426a225684c4b48755e4e121edbb541f8108db468aef517df2f4e676f"
+      "sha256": "1dca85fed2d77fdcecaf4c3ab502e980d400802df6982bfe11f799116799b0ab"
     },
     {
       "path": "src/common/DataPaths.h",
@@ -293,7 +293,7 @@
     },
     {
       "path": "src/core/core.cpp",
-      "sha256": "0fdbd217e0190352451b1ad2b08243c10e1f10c64d0233f489e90be190c05779"
+      "sha256": "e359e253292effe92941bf59c070891bced6f87b6e6046f369b63d15532d8ede"
     },
     {
       "path": "src/core/D3D12Validation.h",
@@ -429,7 +429,7 @@
     },
     {
       "path": "src/core/NgxSession.cpp",
-      "sha256": "496cfe55ce9f7a8ab7790e2ee130109285513786e9345ad60b579686c354383b"
+      "sha256": "3fc12a13ebb6063712c5699821dd00d83113a867cda8616bd7ad15e16a528d85"
     },
     {
       "path": "src/core/NgxSession.h",
@@ -673,7 +673,7 @@
     },
     {
       "path": "src/ui/app.rc",
-      "sha256": "fde4b9a71779d38ad606a34090bc2a566fb302c06d93fb1a278b63ffbec044da"
+      "sha256": "dc94214d18662ad22099c77e1a6c72886f6a54933bb6dc3bc5c170d13793d5cb"
     },
     {
       "path": "src/ui/ExeIcon.h",
@@ -729,7 +729,7 @@
     },
     {
       "path": "src/ui/UpdateClient.h",
-      "sha256": "03fe71cdf9d6ea6d1ee63bebad183d234c23fd43fca4bbc758ca15c450837e2a"
+      "sha256": "db00a2dce2582b8c48224deafc81d596f3d0b69fa394edfe11b411d5852efd44"
     },
     {
       "path": "src/ui/web/app-icon.png",
@@ -741,15 +741,15 @@
     },
     {
       "path": "src/ui/web/app.js",
-      "sha256": "6435ad13a59f54ee24c06c1b2d45ac5b500b11fd8ec7b879454a753709e40445"
+      "sha256": "5b186c9bf95686293bb6d1c66b812d66981ecc854682b6b9ecbbc2d4cdc14baf"
     },
     {
       "path": "src/ui/web/i18n.js",
-      "sha256": "c7dcd19ba1c8ec0dab9b2ad178c7c9d8cc54e341ee481a0a839f751bfdd11ee9"
+      "sha256": "4640bf4b9bd5486e17d68db4ba4bad67bed4803b8d02ccf94b1f9c202e1df9e3"
     },
     {
       "path": "src/ui/web/index.html",
-      "sha256": "00f9215ae03c3d08fcdec2d19852b40026e64ade0fce451a03426ff1c9261d57"
+      "sha256": "75400a47800f7ea8e5479d759b0aac9e2770613c3afbd886a516a69da98899dc"
     },
     {
       "path": "src/ui/web/style.css",
