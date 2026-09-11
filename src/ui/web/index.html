@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>DXL — DLSS eXtended Loader</title>
+	<link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+	<div class="shell">
+
+		<!-- ============ 左侧 ============
+		     布局参考 Magpie：上面是页面导航，下面是「配置文件」列表（每个游戏一份）。
+		     刻意把**全局**设置（快捷键、主题）和**按配置**设置（DLSS 开关、参数）分到
+		     不同页面 —— 之前快捷键栏压在每个按配置页面之上，看起来像是每个游戏一套
+		     快捷键，其实是全局的。
+		-->
+		<aside class="sidebar">
+			<div class="brand">
+				<!-- 应用图标（icon/icon.png 缩小版，web 资产 build 时整目录拷贝）。
+				     srcset 给高 DPI 屏；圆角和尺寸在 CSS 里。 -->
+				<img class="brand-mark" src="app-icon.png"
+					srcset="app-icon.png 1x, app-icon@2x.png 2x" alt="DXL">
+				<div class="brand-text">
+					<div class="brand-name" title="DLSS eXtended Loader">DXL</div>
+					<div class="brand-subtitle">DLSS eXtended Loader</div>
+					<div class="brand-version-row"><span class="brand-version" id="brandVersion">—</span><a class="project-link" id="projectLink" href="https://github.com/LCPD15/DXL" title="GitHub: LCPD15/DXL">@LCPD15</a></div>
+				</div>
+			</div>
+
+			<nav class="nav">
+				<button class="nav-item is-active" data-page="library">游戏库</button>
+				<button class="nav-item" data-page="profile">配置</button>
+				<button class="nav-item" data-page="home">全局设置</button>
+				<button class="nav-item" data-page="extras">额外功能</button>
+				<button class="nav-item" data-page="debug">日志</button>
+				<label class="admin-toggle" for="adminLaunch">
+					<input type="checkbox" id="adminLaunch" checked aria-describedby="adminLaunchHint">
+					<span>默认管理员启动</span>
+				</label>
+				<div class="nav-hint" id="adminLaunchHint">自动保存，下次启动生效。取消权限请求后仍可普通启动。</div>
+			</nav>
+
+			<div class="current-game">
+				<span>当前配置</span>
+				<strong id="sidebarCurrentGame">默认</strong>
+			</div>
+
+			<!-- 扫描 / 全局监控**不放在配置列表里**。
+			     它们在列表末尾时会跟着列表一起滚走：游戏一多就得先滚到底才够得着，
+			     而"全局监控开着没有"是随时要能一眼看到的状态。挪到导航下面常驻。 -->
+			<div class="nav-tools">
+				<label class="watch-toggle" title="列表里的游戏一启动就自动注入">
+					<input type="checkbox" id="watchGames">
+					<span>全局监控</span>
+				</label>
+				<button class="nav-item nav-item-scan" id="scanGames">
+					⟳ 重新扫描已安装的游戏
+				</button>
+				<button class="nav-item nav-item-scan" id="cleanupInvalidGames">清除已失效游戏</button>
+				<div class="nav-tools-hint" id="scanHint">启动时会自动扫一次</div>
+			</div>
+
+			<div class="sidebar-foot">
+				<span class="dot" id="coreDot"></span>
+				<span id="coreState">未加载</span>
+			</div>
+		</aside>
+
+		<!-- ============ 右侧 ============ -->
+		<main class="content">
+
+			<!-- 注入状态提示条：告诉玩家现在该做什么。只有真有话说时才显示。 -->
+			<section class="advice card" id="advice" hidden>
+				<span class="advice-icon" id="adviceIcon">i</span>
+				<div class="advice-body">
+					<div class="advice-text" id="adviceText"></div>
+					<div class="advice-actions" id="adviceActions"></div>
+				</div>
+			</section>
+
+			<div class="pages">
+
+				<section class="page library-page is-active" data-page="library">
+					<div class="library-heading">
+						<div><p class="library-eyebrow">DXL COLLECTION</p><h1>游戏库</h1><p class="page-sub" id="libraryCount">0 款游戏</p></div>
+						<p class="library-scan-note"><span>工具只能识别Steam等游戏平台已安装游戏，其他游戏请先添加.exe文件。</span><br><span>已添加游戏在开启工具后从工具或steam直接启动都行，建议从工具启动</span><br><span>带有反作弊的网游有风险，请斟酌使用。</span></p>
+						<button class="btn btn-primary" id="newProfile">＋ 添加游戏（选 exe）</button>
+					</div>
+					<div class="library-toolbar">
+						<input type="search" class="profile-search" id="profileSearch" placeholder="搜索游戏名或 exe…" aria-label="搜索游戏">
+						<select id="libraryFilter" aria-label="筛选游戏">
+							<option value="all">全部游戏</option><option value="favorites">我的收藏</option>
+							<option value="Steam">Steam</option><option value="Epic">Epic</option><option value="GOG">GOG</option><option value="Manual">手动添加</option>
+						</select>
+						<button class="btn btn-ghost" id="defaultProfile">默认配置</button>
+					</div>
+					<div id="profileList" class="profile-list"></div>
+				</section>
+
+                <section class="page" data-page="extras">
+                    <div class="page-head span-all"><h1>额外功能</h1><p class="page-sub">完整包已集成以下实验性功能，可在游戏内按需启用。</p></div>
+                    <div class="card span-all">
+                        <h2>语义 Mask（试验）</h2>
+                        <p class="card-note">通过语义识别给NR输入蒙板控制不同物体的NR强度。</p>
+                        <p class="hint">语义 Mask：识别人物、车辆等物体，按区域控制 NR 强度。</p>
+                        <p id="semanticInstallStatus">语义组件缺失，请重新解压完整包。</p>
+                        <p class="hint" id="semanticDownloadAddress">完整包已包含模型，无需额外下载</p>
+                        <div class="row-field">
+                            <button class="btn btn-primary" id="downloadSemantic" disabled>获取组件</button>
+                            <button class="btn btn-ghost" id="openSemanticFolder">打开文件夹</button>
+                            <button class="btn btn-ghost" id="refreshExtensions">刷新状态</button>
+                        </div>
+                        <p class="hint" id="semanticFolder"></p>
+                        <p class="hint">组件缺失时请重新解压完整包，并在替换文件后重启游戏。</p>
+                    </div>
+                </section>
+
+				<!-- ---------------- 全局设置 ---------------- -->
+				<section class="page" data-page="home">
+					<div class="page-head span-all">
+						<h1>全局设置</h1>
+						<p class="page-sub">整个工具的设置，不属于某一个游戏配置。</p>
+					</div>
+					<div class="card">
+						<h2>快捷键</h2>
+						<p class="card-note">点击按钮后按单键或组合键。效果与面板键为一组全局设置，修改后应用到所有游戏。</p>
+						<div class="row">
+							<label class="row-label">手动注入</label>
+							<div class="row-field">
+								<button class="hotkey-key is-primary" data-hotkey="toggleInject">Alt + F8</button>
+							</div>
+						</div>
+						<div class="row">
+							<label class="row-label">总开关（所有效果）</label>
+							<div class="row-field">
+								<button class="hotkey-key" data-hotkey="toggleAll">Del</button>
+							</div>
+						</div>
+						<div class="row">
+							<label class="row-label">
+								Debug 视图循环（关 → 深度 → 运动矢量）</label>
+							<div class="row-field">
+								<button class="hotkey-key"
+									data-hotkey="toggleDebugView">Alt + V</button>
+							</div>
+						</div>
+						<div class="row">
+							<label class="row-label">游戏内浮层（开 / 关）</label>
+							<div class="row-field">
+								<button class="hotkey-key"
+									data-hotkey="toggleOverlay">End</button>
+							</div>
+						</div>
+						<p class="hint">
+                            <b>效果和面板快捷键只在游戏窗口中响应，不占用系统快捷键。</b>
+                            支持单键，修改后立即生效。面板打开时接管游戏键鼠；
+                            再按面板键、ESC 或右上角 ✕ 关闭，Alt+Tab 和 Win 键始终放行。
+						</p>
+					</div>
+					<div class="card">
+						<h2>外观</h2>
+						<div class="row">
+							<label class="row-label" for="themeToggle">主题</label>
+							<div class="row-field">
+								<button class="btn btn-ghost" id="themeToggle">浅色</button>
+							</div>
+						</div>
+						<!-- 语言切换。字典见 i18n.js；漏翻回退中文，不会弄坏界面。
+						     日语已删（维护成本），只剩中英。 -->
+						<div class="row">
+							<label class="row-label" for="langSel">语言 / Language</label>
+							<div class="row-field">
+								<select id="langSel">
+									<option value="zh">中文</option>
+									<option value="en">English</option>
+								</select>
+							</div>
+						</div>
+						<p class="hint">界面语言。立即生效；首次启动时按系统语言自动选择。</p>
+					</div>
+					<div class="grid-2">
+						<div class="card">
+							<h2>运行状态</h2>
+							<!-- 注入目标切换：多目标下拉框（宿主的多目标表）。没有目标时隐藏。 -->
+							<div class="kv kv-target" id="stTargetRow" hidden>
+								<span>注入目标</span>
+								<select id="stTargetSelect" aria-label="选择要查看的注入目标"></select>
+							</div>
+							<div class="kv"><span>核心</span><b id="stHookState">未加载</b></div>
+							<div class="kv"><span>渲染 API</span><b id="stApi">—</b></div>
+							<div class="kv"><span>注入时机</span><b id="stEarly">—</b></div>
+							<div class="kv"><span>DLSS SR</span><b id="stSr">—</b></div>
+							<div class="kv"><span>DLSS5 / NR</span><b id="stNr">—</b></div>
+							<div class="kv"><span>真超分代理</span><b id="stProxy">—</b></div>
+							<div class="kv"><span>渲染 → 输出</span><b id="stRes">—</b></div>
+							<div class="kv"><span>帧时间</span><b id="stFrameMs">—</b></div>
+							<div class="kv"><span>NGX evaluate</span><b id="stEvaluate">—</b></div>
+						</div>
+
+						<!-- 诊断。这一块以前是三个「尚未实现」的开关，现在换成**真的有数据**
+						     的东西：卡顿转储、跳帧、旁听到的游戏 DLSS 输入。 -->
+						<div class="card">
+							<h2>诊断</h2>
+							<div class="kv"><span>卡顿</span><b id="stStall">—</b></div>
+							<div class="kv"><span>跳帧（SR / NR）</span><b id="stSkipped">—</b></div>
+							<div class="kv"><span>原生深度候选</span><b id="stDepthCount">—</b></div>
+
+							<h2 class="mt">旁听游戏的 DLSS</h2>
+							<p class="card-note">
+								从游戏自己的 DLSS 调用里读到真深度 / 真矢量 / jitter。
+								<b>默认已开</b> —— 它是 DLSSNR 画质的上限所在。
+							</p>
+							<div class="kv"><span>链条</span><b id="stEavesChain">—</b></div>
+							<div class="kv"><span>看到 / 拷到</span><b id="stEavesFrames">—</b></div>
+							<div class="kv"><span>矢量分辨率</span><b id="stEavesSize">—</b></div>
+							<div class="kv"><span>MV 缩放</span><b id="stEavesMvScale">—</b></div>
+							<div class="kv"><span>jitter</span><b id="stEavesJitter">—</b></div>
+							<div class="kv"><span>DLSS5 处理点</span><b id="stNrWhere">—</b></div>
+							<div class="kv"><span>DLSS5 用上真矢量</span><b id="stRealMotion">—</b></div>
+						</div>
+					</div>
+
+					<div class="card">
+						<h2>运行时 DLL</h2>
+						<p class="card-note">
+							core 从工具目录的 <code>ngx\</code> 里加载 NGX 运行时。
+							现在只有 DLSS5 神经滤镜用到它；以后加了别的功能再列出对应的 DLL。
+						</p>
+						<div class="kv"><span>nvngx_dlssnr.dll（DLSS5 神经滤镜）</span><b id="stNrDll">—</b></div>
+						<div class="kv"><span>版本</span><b id="stNrDllVersion">—</b></div>
+						<div class="launch-actions">
+							<button class="btn btn-ghost btn-sm" id="openNgxDirBtn">打开 DLL 文件夹</button>
+						</div>
+					</div>
+				</section>
+
+				<!-- ---------------- 配置（按游戏） ---------------- -->
+				<section class="page" data-page="profile">
+					<div class="page-head span-all">
+						<div class="detail-navigation"><button class="btn btn-ghost btn-sm" id="backToLibrary">← 游戏库</button><button class="btn btn-ghost btn-sm" id="changeGameCover">更换封面</button></div>
+						<div class="profile-title-row">
+                            <div class="profile-title-info">
+                                <h1 id="homeTitle">默认</h1>
+                                <aside class="profile-install-note" id="reFrameworkSetup" hidden>
+                                    <p>RE引擎游戏需要先安装RE框架和ReShade才能正常使用。</p>
+                                    <div class="profile-install-links"><a class="project-link" id="reFrameworkDownload" href="https://github.com/praydog/REFramework-nightly/releases">RE框架下载</a><a class="project-link" id="reShadeDownload" href="https://www.reshade.me/#download">ReShade下载</a></div>
+                                </aside>
+                            </div>
+                            <button class="btn btn-ghost btn-danger" id="deleteProfile">删除此配置</button>
+                        </div>
+						<!-- #39：选中游戏的 DX 版本 / 位数徽标（用户指定放这里 ——
+						     列表行里名字长时徽标容易被挤没，这块是固定位置）。 -->
+						<span id="homeBadges" class="home-badges"></span>
+						<p class="page-sub" id="homeSub">未关联任何游戏</p>
+					</div>
+
+					<div class="card launch-card">
+						<div class="launch-row">
+							<div class="launch-actions">
+								<button class="btn btn-primary" id="launchBtn">从工具启动游戏</button>
+								<button class="btn btn-ghost" id="detachBtn">断开</button>
+							</div>
+							<label class="launch-arguments" for="homeLaunchArgs">
+								<span>启动参数 / Launch arguments</span>
+								<input type="text" id="homeLaunchArgs" placeholder="可留空" autocomplete="off" spellcheck="false" aria-describedby="launchArgsHint">
+							</label>
+						</div>
+						<p class="hint" id="launchArgsHint">仅当前配置，不会继承到其他游戏；下次从工具启动时使用。</p>
+						<p class="hint" id="launchHint">
+							exe 路径和注入时机在下方设置。也可以直接按
+							<b id="hintInjectKey">Alt + F8</b> 注入到已经在跑的游戏。
+						</p>
+					</div>
+
+
+					<div class="page-head span-all">
+						<p class="page-sub" id="settingsFor">当前配置：默认</p>
+					</div>
+
+					<div class="card">
+						<h2>启动与注入</h2>
+						<div class="row">
+							<label class="row-label" for="profileName">配置名称</label>
+							<div class="row-field">
+								<input type="text" id="profileName" placeholder="例如：鬼武者">
+							</div>
+						</div>
+						<div class="row">
+							<label class="row-label" for="profileExePath">游戏 exe 路径</label>
+							<div class="row-field">
+								<input type="text" id="profileExePath"
+									placeholder="F:\Steam\steamapps\common\Game\Game.exe">
+							</div>
+						</div>
+						<input type="hidden" id="profileArgs">
+                        <fieldset class="timing-fieldset" id="injectTiming" aria-describedby="injectTimingWarning monitorTimingHint">
+                            <legend>注入时机</legend>
+                            <div class="timing-options">
+                                <label class="timing-choice"><input type="radio" name="injectTiming" id="timingAuto" value="auto" data-key="injectTiming"><span>自动（按游戏兼容性选择）</span></label>
+                                <label class="timing-choice"><input type="radio" name="injectTiming" id="timingEarly" value="early" data-key="injectTiming"><span>尽早（优先捕获原生 DLSS 和矢量）</span></label>
+                                <label class="timing-choice"><input type="radio" name="injectTiming" id="timingLate" value="late" data-key="injectTiming"><span><strong>兼容模式</strong><small>延迟到游戏出画面后（可能无法捕获原生 DLSS）</small></span></label>
+                            </div>
+                            <p class="timing-warning" id="injectTimingWarning">若用自动模式启动游戏崩溃，请尝试兼容模式。</p>
+                            <p class="hint" id="monitorTimingHint">从 Steam 等外部启动时，自动监控等待窗口稳定后加载；需要优先捕获原生 DLSS 时，请从工具启动游戏。</p>
+                        </fieldset>
+						<details class="explain">
+							<summary>注入时机怎么选</summary>
+							<p><b>自动 / 尽早</b>从工具启动时，优先在图形接口初始化前加载；自动模式对 GTA SA 重制版采用兼容加载。从外部启动时，自动模式等待窗口稳定。手动选择尽早会覆盖兼容策略，但可能与游戏初始化冲突。</p>
+							<p><b>兼容模式</b>在游戏出画面后加载，作为特殊游戏的手动兼容选项。部分游戏会缓存接口地址，延迟加载可能只能回退到 Present。</p>
+							<p>开启原生 DLSS 时优先使用 Evaluate；主菜单或关闭 DLSS 后按可用资源自动回退。游戏原生 DLSS 无需关闭。</p>
+						</details>
+                        <details class="explain" id="fgThresholdDetails">
+                            <summary id="fgThresholdSummary">高级：FG 检测阈值</summary>
+                            <p class="hint" id="fgThresholdHint">尽量不要修改；如果工具能加载，但 NR 无效果，再尝试提高。</p>
+                            <div class="row fg-threshold-row">
+                                <label class="row-label" for="fgBufferCountThreshold">FG 检测阈值（缓冲区数）</label>
+                                <div class="row-field"><input type="range" id="fgBufferCountThreshold" data-key="fgBufferCountThreshold" min="2" max="16" step="1" aria-describedby="fgThresholdHint fgThresholdScope"><output class="row-value" id="fgBufferCountThresholdOut">4</output></div>
+                            </div>
+                            <p class="hint" id="fgThresholdScope">默认 4，仅本游戏配置，重启游戏生效。</p>
+                        </details>
+					</div>
+
+					<div class="card">
+						<h2>DLSS5 Neural Rendering</h2>
+						<p class="card-note">
+							神经渲染滤镜。开启原生 DLSS 时，在超分 Evaluate 之后处理 NR，供后续帧生成使用；没有原生 DLSS 时自动回退 Present。优先使用原生运动矢量，缺少时可自动计算光流。
+						</p>
+
+						<div class="row">
+							<!-- 总开关。core 只在启动时读一次配置里的 masterEnabled，
+							     运行中切它靠 SetEnabled 命令（app.js 的 change 监听发）。
+							     Del 按下的那次选择也会写回这里（onMasterToggled）。 -->
+							<div class="row">
+								<label class="row-label" for="masterEnabled">总开关（本配置启动时自动照此开启效果）</label>
+								<label class="switch">
+									<input type="checkbox" id="masterEnabled" data-key="masterEnabled">
+									<span class="slider-track"></span>
+								</label>
+							</div>
+							<p class="hint" id="masterHotkeyHint">
+								这就是游戏里 Del 那个总开关：管的是「这套工具的全部效果」
+								（超分 + DLSS5 滤镜），不动注入本身。开关会存进配置 ——
+								上一局开过，这一局启动就自动是开的，不用每次进游戏再按一遍。
+								游戏正在跑时在这里切，会立刻推送给它。
+							</p>
+
+							<div class="row">
+								<label class="row-label" for="dlss5Enable">启用</label>
+							<label class="switch">
+								<input type="checkbox" id="dlss5Enable" data-key="dlss5Enable">
+								<span class="slider-track"></span>
+							</label>
+						</div>
+						<div class="row" data-requires="dlss5Enable">
+							<label class="row-label" for="eavesdrop">旁听游戏的 DLSS 取真矢量</label>
+							<label class="switch">
+								<input type="checkbox" id="eavesdrop" data-key="eavesdrop">
+								<span class="slider-track"></span>
+							</label>
+						</div>
+						<div class="row" data-requires="dlss5Enable">
+							<label class="row-label" for="nrAutoRoute">自动切换 Evaluate / Present</label>
+							<label class="switch"><input type="checkbox" id="nrAutoRoute" data-key="nrAutoRoute"><span class="slider-track"></span></label>
+						</div>
+						<div class="row" data-requires="eavesdrop">
+							<label class="row-label" for="dlss5AtEvaluate">启用原生 DLSS Evaluate 路径</label>
+							<label class="switch"><input type="checkbox" id="dlss5AtEvaluate" data-key="dlss5AtEvaluate"><span class="slider-track"></span></label>
+						</div>
+						<div class="row" data-requires="eavesdrop">
+							<label class="row-label" for="nrUseRealMotion">用真运动矢量</label>
+							<label class="switch">
+								<input type="checkbox" id="nrUseRealMotion"
+									data-key="nrUseRealMotion">
+								<span class="slider-track"></span>
+							</label>
+						</div>
+						<div class="row" data-requires="eavesdrop">
+							<label class="row-label" for="nrUseRealDepth">用真深度</label>
+							<label class="switch">
+								<input type="checkbox" id="nrUseRealDepth"
+									data-key="nrUseRealDepth">
+								<span class="slider-track"></span>
+							</label>
+						</div>
+						<div class="row" data-requires="eavesdrop">
+							<label class="row-label" for="nrDebugView">Debug 视图</label>
+							<div class="row-field">
+								<select id="nrDebugView" data-key="nrDebugView"></select>
+							</div>
+						</div>
+						<div class="row" data-requires="eavesdrop">
+							<label class="row-label" for="nrDebugGain">Debug 强度</label>
+							<div class="row-field">
+								<input type="range" id="nrDebugGain" data-key="nrDebugGain"
+									min="0" max="60" step="0.5">
+								<output class="row-value" id="nrDebugGainOut"></output>
+							</div>
+						</div>
+						<details class="explain">
+							<summary>怎么用这四项判断真深度/真矢量到底有没有用</summary>
+							<p>
+								<b>Debug 视图</b>会把喂给 DLSSNR 的那张深度/矢量**直接画在画面上**，
+								而且这时候<b>不跑 DLSSNR</b> —— 所以看到的一定是原始输入本身，
+								不会掺进滤镜的效果。
+							</p>
+							<p>
+								编码与差值视图用于检查 Evaluate 路径的输入和处理结果。
+								<b>压缩后的输入</b>让你看清我们到底喂了什么进去；
+								<b>差值</b>把「滤镜改了多少」直接画出来 ——
+								<b>全黑就是没改</b>，这比盯着最终画面猜"好像变了一点"可靠得多。
+							</p>
+							<p>
+								<b>矢量</b>：中灰 = 不动，偏红 = 向右，偏绿 = 向下。
+								镜头左右平移时整屏应该往同一个方向偏色；偏反了说明矢量约定反了。
+								<b>深度</b>：近处亮远处暗（或反之），能看出物体轮廓和层次就说明深度是对的。
+								看不出层次就调「Debug 强度」（深度是幂曲线指数，矢量是偏移增益，0 = 用默认）。
+							</p>
+							<p>
+								确认输入没问题之后，关掉 Debug 视图，再用
+								<b>用真运动矢量</b> / <b>用真深度</b> 两个开关做 A/B ——
+								深度开关可单独退回零深度；关闭原生运动矢量后按光流开关选择光流或零矢量。改动自动保存，关闭光流可单独检查原生矢量的效果。
+							</p>
+						</details>
+						<p class="hint">
+							运动矢量用于保持跨帧细节稳定。已取得原生矢量时不计算光流；缺少矢量时可在游戏内 ImGui 面板开启自动光流并选择质量。
+						</p>
+					</div>
+
+					<!-- DLSSNR 参数（只读）。独立成卡（用户拍板）：不和上面的配置挤在一起。
+					     全部置灰不可改 —— 唯一调参入口是游戏内浮层（End），
+					     值来自状态块（core 随每一拍报回来），浮层里改了它会跟着变。 -->
+					<div class="card">
+						<h2>DLSSNR 参数</h2>
+						<p class="card-note" id="panelHotkeyHint">只读显示 —— 请在游戏内 ImGui 面板调参（默认 End 打开）。</p>
+						<div class="ro-grid" id="nrRoGrid">
+							<div class="ro-item"><span>风格（Style）</span><b id="nrRoStyle">—</b></div>
+							<div class="ro-item"><span>强度（Intensity）</span><b id="nrRoIntensity">—</b></div>
+							<div class="ro-item"><span>局部色调</span><b id="nrRoTone">—</b></div>
+							<div class="ro-item"><span>局部结构</span><b id="nrRoStructure">—</b></div>
+							<div class="ro-item"><span>皮肤结构</span><b id="nrRoSkin">—</b></div>
+							<div class="ro-item"><span>语义遮罩</span><b id="nrRoAutoMask">—</b></div>
+							<div class="ro-item"><span>UI 修正</span><b id="nrRoUiCorrection">—</b></div>
+							<div class="ro-item"><span>处理分辨率</span><b id="nrRoRenderScale">—</b></div>
+							<div class="ro-item"><span>自叠层（Self Layers）</span><b id="nrRoSelfLayers">—</b></div>
+							<div class="ro-item"><span>真叠层（True NR Layers）</span><b id="nrRoTrueLayers">—</b></div>
+							<div class="ro-item"><span>色彩强度</span><b id="nrRoColourStrength">—</b></div>
+							<div class="ro-item"><span>自动光流</span><b id="nrRoOpticalFlow">—</b></div>
+							<div class="ro-item"><span>光流质量</span><b id="nrRoOpticalFlowQuality">—</b></div>
+							<div class="ro-item"><span>自定义语义 Mask</span><b id="nrRoSemantic">—</b></div>
+							<div class="ro-item"><span>Mask 背景强度</span><b id="nrRoSemanticBg">—</b></div>
+						</div>
+						<p class="hint">
+							G/B/A 全图由背景强度控制；R 通道在识别区域内按各组强度控制，区域外取背景强度。0 对应 0，1 对应 255，软边缘平滑混合。
+						</p>
+					</div>
+
+				</section>
+
+				<!-- DLSS5 参数页已删（用户拍板）：和游戏内浮层完全重复，两条写入路径
+				     只产出间歇性同步 bug（四轮排查没查清）。游戏内浮层（End）是
+				     **唯一**调参入口：全部参数 + 悬停说明 + 拖动，改动由
+				     app.js 的 syncNrParamsFromCore 落盘供下一局读取。 -->
+
+				<!-- ---------------- 日志 ---------------- -->
+				<section class="page" data-page="debug">
+					<div class="page-head span-all">
+						<h1>日志</h1>
+						<p class="page-sub">
+							这里只是工具侧的事件。core 在游戏进程里的详细日志（含 NGX 自己的输出、
+							卡顿转储）在日志文件夹里。
+						</p>
+					</div>
+					<div class="card">
+						<div class="launch-actions">
+							<button class="btn btn-ghost" id="openLogsBtn">打开日志文件夹</button>
+							<button class="btn btn-ghost" id="clearLogBtn">清空</button>
+						</div>
+						<pre class="log" id="logView">（等待事件）</pre>
+					</div>
+				</section>
+
+			</div>
+
+			<!-- 底部操作条。只在有未保存改动时才占位。 -->
+			<!-- 底部操作条。没有「应用/放弃」按钮了 —— 所有改动自动应用 + 自动存盘
+			     （见 app.js 的 markDirty -> 防抖 persistAll）。
+			     DLSSNR 的耗时读数常驻：那是判断"这个处理分辨率划不划算"的唯一依据。 -->
+			<footer class="actions" id="actionsBar">
+				<span class="perf-live" id="perfLive" title="DLSSNR 自己的 GPU 耗时（不含游戏本身）">
+					<span class="perf-label">DLSSNR</span>
+					<b class="perf-value" id="perfNrMs">—</b>
+					<span class="perf-sub" id="perfNrSub"></span>
+				</span>
+				<span class="dirty-hint" id="dirtyHint"></span>
+			</footer>
+
+		</main>
+	</div>
+
+	<dialog id="deleteProfileDialog" class="profile-delete-dialog" aria-labelledby="deleteProfileTitle" aria-describedby="deleteProfileDescription">
+        <h2 id="deleteProfileTitle">确认删除配置</h2>
+        <p id="deleteProfileName" data-i18n-skip></p>
+        <p id="deleteProfileDescription">将从游戏库和自动监控列表中移除此配置，不会删除游戏文件。</p>
+        <div class="dialog-actions">
+            <button class="btn btn-ghost" id="cancelDeleteProfile" autofocus>取消</button>
+            <button class="btn btn-danger" id="confirmDeleteProfile">确认删除</button>
+        </div>
+    </dialog>
+	<script src="i18n.js"></script>
+	<script src="app.js"></script>
+</body>
+
+</html>

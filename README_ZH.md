@@ -65,3 +65,7 @@ Del：开关 NR  •  End：开关面板  •  Alt + F8：对当前游戏窗口�
 强度范围 0–1，边缘羽化默认 8，可缓和硬边界。识别效果可能不好，特别是二次元、遮挡和小物体；出现误识别或不自然边缘时，可关闭此功能。
 
 [构建与依赖](DEPENDENCIES.md) · [第三方组件](THIRD_PARTY_NOTICES.md) · [组件许可](LICENSE_STATUS.md)
+
+## 开源许可
+
+DXL 采用 [AGPL-3.0-only](LICENSE)，版权所有 (C) 2026 LCPD15。第三方组件保留各自许可。[对应源码说明](SOURCE_CODE.md)。

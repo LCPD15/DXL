@@ -17,7 +17,24 @@ source, under DXL_WORKSPACE/dependencies/. Never commit them.
 | YOLO export tools | https://github.com/ultralytics/ultralytics | external Python environment | AGPL-3.0; https://www.ultralytics.com/license |
 | NR runtime | https://github.com/SAOG0721/Magpie/releases | dependencies/runtime/nvngx_dlssnr.dll | Community source reference only, NOT an NVIDIA authorization; no authorized download for the exact modified file has been verified |
 
-## Setup
+## Build DXL 0.1
+
+Install Visual Studio 2022 Build Tools with the C++ x64 tools and a Windows SDK.
+Use PowerShell from the source root. Keep DXL_WORKSPACE outside the checkout:
+
+```powershell
+$env:DXL_WORKSPACE = 'D:\DXL-Workspace'
+./scripts/fetch-deps.ps1
+# Prepare the runtime and model inputs described below, then:
+./scripts/build_dxl.ps1 -Runtime Lean -Test
+./scripts/release_dxl.ps1 -SourceDir "$env:DXL_WORKSPACE/build/dxl-0.1" -OutDir 'D:\DXL-release/DXL-v0.1'
+```
+
+The source includes FG compatibility and runtime route switching. No private
+DXL implementation library is required. Third-party SDKs and runtimes keep their
+own terms. See SOURCE_CODE.md and LICENSE for DXL's source and license.
+
+### Prepare external inputs
 
 scripts/fetch-deps.ps1 fetches the pinned DLSS and WebView2 SDKs into the external
 workspace. It does not download or patch an NR runtime.
@@ -36,10 +53,20 @@ from ultralytics import YOLO
 YOLO("yolo11n-seg.pt").export(format="onnx", imgsz=640, dynamic=False, opset=17)
 ```
 
-Use scripts/build_lean_model.py --onnx <external-path>/yolo11n-seg.onnx
---out <external-output> with the matching TensorRT 11.2.1.2 Python builder.
-It enables VERSION_COMPATIBLE and EXCLUDE_LEAN_RUNTIME and rejects external plugins.
-The builder SDK is only needed for conversion; the app uses the smaller Lean runtime.
+The exact ONNX input (including weights) used for the bundled model is available
+in [DXL-v0.1-model-source.zip](https://github.com/LCPD15/DXL/releases/download/v0.1/DXL-v0.1-model-source.zip).
+Its SHA256 is `0bc32bc92e985b881141ef9bd2216e2a746f70519d0d24da9fc85decc4428cf4`.
+The bundled engine uses the original TensorRT 11.2.1.2 builder defaults and a
+2 GiB workspace, without VERSION_COMPATIBLE or EXCLUDE_LEAN_RUNTIME flags:
+
+```powershell
+python scripts/build_release_model.py --onnx '<external-path>/yolo11n-seg.onnx' --out '<external-output>/yolo11n-seg.plan'
+```
+
+`scripts/build_lean_model.py` is an alternative builder that enables
+VERSION_COMPATIBLE and EXCLUDE_LEAN_RUNTIME; it was not used for the bundled plan.
+Both recipes need the builder SDK; the app uses the smaller Lean runtime.
+TensorRT tactic selection can produce different engine bytes when rebuilt.
 
 The current parser expects the YOLO11n-seg detection/prototype outputs at 640×640.
 A .plan is not automatically portable to another TensorRT release or GPU.

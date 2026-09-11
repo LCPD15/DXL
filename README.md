@@ -65,3 +65,7 @@ The complete package includes the recognition model. This feature starts off. En
 Strength ranges from 0 to 1. Mask feather defaults to 8 to soften edges. Recognition may be poor, especially for anime scenes, occlusion or small objects. Turn it off if it misidentifies objects or produces unnatural edges.
 
 [Build and dependencies](DEPENDENCIES.md) · [Third-party components](THIRD_PARTY_NOTICES.md) · [Component licenses](LICENSE_STATUS.md)
+
+## License
+
+DXL is licensed under [AGPL-3.0-only](LICENSE). Copyright (C) 2026 LCPD15. Third-party components retain their own licenses. [Corresponding source](SOURCE_CODE.md).
