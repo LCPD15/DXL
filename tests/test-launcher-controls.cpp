@@ -2,6 +2,8 @@
 #include "../src/ui/Hotkey.h"
 #include "../src/ui/GameListCleanup.h"
 #include "../src/ui/LaunchArguments.h"
+#include "../src/common/NrParameterEdit.h"
+#include <limits>
 #include <shellapi.h>
 #include <cstdio>
 #include <stdexcept>
@@ -12,6 +14,23 @@ static void Check(bool pass, const char* message) {
 }
 int wmain() {
     using namespace DXL;
+    for (const auto& spec : NrEditSpecs) {
+        for (double value : {spec.low, spec.high}) {
+            uint32_t packed = 0; unsigned index = 0; double decoded = 0;
+            Check(EncodeNrEdit(spec.key,value,packed) && DecodeNrEdit(packed,index,decoded), "NR edit roundtrip");
+            Check(NrEditSpecs[index].key == spec.key && std::abs(decoded-value) < 0.001, "NR edit identity/value");
+        }
+        uint32_t packed = 0;
+        Check(!EncodeNrEdit(spec.key,spec.high+1,packed), "NR upper bound");
+        Check(!EncodeNrEdit(spec.key,spec.low-1,packed), "NR lower bound");
+    }
+    uint32_t encoded = 0; unsigned decodedIndex = 0; double decodedValue = 0;
+    Check(!EncodeNrEdit("notAParameter",1,encoded), "unknown NR key");
+    Check(!EncodeNrEdit("nrIntensity",std::numeric_limits<double>::quiet_NaN(),encoded), "NaN NR value");
+    Check(!EncodeNrEdit("nrTrueLayers",1.5,encoded), "fractional layer count");
+    Check(!DecodeNrEdit(0xffffffff,decodedIndex,decodedValue), "invalid packed NR edit");
+    std::puts("PASS NR parameter protocol: all bounds, identity, roundtrip and malformed input rejection");
+
     UINT mods = 0, key = 0;
     Check(ParseHotkey(L"Del", mods, key) && !mods && key == VK_DELETE, "bare Del");
     Check(ParseHotkey(L"End", mods, key) && !mods && key == VK_END, "bare End");

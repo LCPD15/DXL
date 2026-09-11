@@ -1,6 +1,8 @@
 // ReUiBackend.cpp — see ReUiBackend.h
 #include "ReUiBackend.h"
 #include "HookTeardown.h"
+#include "PresentationFocus.h"
+#include "PresentWriterTracker.h"
 
 #include "imgui.h"
 #include "imgui_impl_dx12.h"
@@ -147,9 +149,11 @@ LRESULT UiWndProcInner(const InputHook& hook, HWND hwnd, UINT msg, WPARAM wParam
     if (!hook.enabled) return forward();
     auto* uiOpen = g.uiOpen.load(std::memory_order_acquire);
 
-    // player left the game window (Alt-Tab / focus loss): drop the panel so we
-    // never keep swallowing input on a background window
-    if ((msg == WM_ACTIVATEAPP && wParam == FALSE) || msg == WM_KILLFOCUS) {
+    // Moving focus between an embedded render surface and its host/control
+    // stays in the game. Alt-Tab or a separate dialog releases the panel.
+    if ((msg == WM_ACTIVATEAPP && wParam == FALSE) ||
+        (msg == WM_KILLFOCUS && !DXL::SamePresentationWindowTree(
+            g.hwnd.load(), reinterpret_cast<HWND>(wParam)))) {
         if (uiOpen) uiOpen->store(false, std::memory_order_relaxed);
         ClipCursor(nullptr); // render callbacks may stop immediately after Alt-Tab
     }
@@ -259,7 +263,8 @@ void EnsureInputHook(HWND want) noexcept {
     }
     if (previous != reinterpret_cast<LONG_PTR>(&UiWndProc))
         hook.previous = reinterpret_cast<WNDPROC>(previous);
-    D5_LOG_INFO(L"ImGui input attached: hwnd=%p previous=%p unicode=%u", want, hook.previous, unsigned(unicode));
+    D5_LOG_INFO(L"ImGui input attached: hwnd=%p root=%p foreground=%p previous=%p unicode=%u",
+        want, GetAncestor(want, GA_ROOT), GetForegroundWindow(), hook.previous, unsigned(unicode));
 }
 
 void RemoveInputHook() noexcept {
@@ -291,7 +296,7 @@ bool UiActive() noexcept {
     auto* uiOpen = g.uiOpen.load(std::memory_order_acquire);
     if (!uiOpen || !uiOpen->load(std::memory_order_acquire)) return false;
     if (!g.hwnd) return true;
-    return GetForegroundWindow() == g.hwnd;
+    return DXL::HasPresentationFocus(g.hwnd.load());
 }
 
 bool IsSelfCall(const void* caller) noexcept {
@@ -572,7 +577,7 @@ void ResetCursorSession() noexcept {
 // so we deliberately do NOT hammer ShowCursor here — counters would grow.)
 void MaintainFreeCursor(bool open) noexcept {
     if (!open || !g.hwnd || !o_ClipCursor) return;
-    if (GetForegroundWindow() != g.hwnd) return;
+    if (!DXL::HasPresentationFocus(g.hwnd.load())) return;
 
     RECT client{};
     if (GetClientRect(g.hwnd, &client)) {
@@ -820,7 +825,7 @@ static ImDrawData* BuildDrawData(uint32_t w, uint32_t h,
     // input (polled; no win32 backend needed)
     auto* uiOpen = g.uiOpen.load(std::memory_order_acquire);
     const bool open = uiOpen && uiOpen->load(std::memory_order_acquire);
-    const bool fg = !g.hwnd || GetForegroundWindow() == g.hwnd;
+    const bool fg = !g.hwnd || DXL::HasPresentationFocus(g.hwnd.load());
     MaintainFreeCursor(open);
 
     // Also cover a toggle that occurred after SetUiOpen earlier in this frame.
@@ -884,6 +889,7 @@ static ImDrawData* BuildDrawData(uint32_t w, uint32_t h,
 
 void FramePresent(IDXGISwapChain* swapChain,
                   const std::function<void()>& buildUi) {
+    DXL::PresentWriterTracker::IgnoreScope ignoreOwnWriterEvidence;
     if (g.device11) { FramePresent11(swapChain, buildUi); return; }
     if (!g.ok || !swapChain) return;
     // teardown 闸门：游戏在退/设备没了之后，叠加层立刻停止一切 D3D 工作

@@ -249,6 +249,7 @@ enum class CommandId : uint32_t {
 	// 迟到注入时真超分需要游戏重建 swapchain 才能生效。core 靠临时改一下游戏
 	// 窗口的尺寸来触发（游戏收到 WM_SIZE 后自己 ResizeBuffers）。
 	NudgeSwapChain,
+    EditNrParameter, // arg0: validated parameter index + fixed-point value
 };
 
 struct Command {

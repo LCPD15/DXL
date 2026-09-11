@@ -55,6 +55,9 @@
 #include "ReUiBackend.h"
 #include "LegacyGraphics.h"
 #include "PresentationOwner.h"
+#include "PresentationFocus.h"
+#include "../common/NrParameterEdit.h"
+#include "PresentWriterTracker.h"
 #include "DirectQueueCandidate.h"
 #include "PresentInlineHooks.h"
 #include "NvSmoothMotion.h"
@@ -373,6 +376,7 @@ void UpdateSemanticMask() noexcept {
     if (bridge) g_state.nrFilter11.SetSemanticMaskProvider(provider);
     else g_state.nrFilter.SetSemanticMaskProvider(provider);
 }
+std::atomic<bool> g_processTerminating{false};
 void CleanupDxl() noexcept {
     StopLegacyGraphicsHooks();
     std::lock_guard<std::recursive_mutex> lock(g_nrStateMutex);
@@ -382,7 +386,10 @@ void CleanupDxl() noexcept {
     const bool evaluateIdle = EvaluateGpuGate::Get().DrainForExit();
     if (!evaluateIdle) g_state.segMask.RetainForExit();
     g_state.segMask.TeardownForExit();
-    ReUi::Shutdown();
+    // ExitProcess has stopped the driver's worker threads and holds the loader
+    // lock. Retain renderer objects for OS reclamation in that final fallback;
+    // ordinary game/NGX shutdown still drains and releases them normally.
+    if (!g_processTerminating.load(std::memory_order_acquire)) ReUi::Shutdown();
     if (evaluateIdle) {
         g_state.nrFilter11.TeardownForExit();
         g_state.nrFilter.TeardownForExit();
@@ -1017,6 +1024,7 @@ void STDMETHODCALLTYPE HookedExecuteCommandLists(
 	// may consume it after this thread has released its last game-owned reference.
 	g_state.directQueueCandidate.Observe(queue);
 	g_originalExecuteCommandLists(queue, count, lists);
+	PresentWriterTracker::Get().Submitted(queue, count, lists);
 	EvaluateGpuGate::Get().Submitted(queue, count, lists);
 	NrRouteProbe::Get().Submitted(queue, count, lists);
 	g_state.segMask.NotifySubmitted(queue, count, lists);
@@ -1831,6 +1839,7 @@ void RunFilters11(IDXGISwapChain* swapChain) noexcept {
     }
 }
 void RunFilters(IDXGISwapChain* swapChain) noexcept {
+    PresentWriterTracker::IgnoreScope ignoreOwnWriterEvidence;
 	std::lock_guard<std::recursive_mutex> nrLock(g_nrStateMutex);
 	const bool handoffWasBlocked = g_state.nrAutomaticHandoffBlocked;
 	g_state.nrAutomaticHandoffBlocked = false;
@@ -2276,7 +2285,7 @@ static void UiApplyKey(std::string& text, const std::string& key,
     }
 }
 
-static void UiSaveSettings() {
+static bool UiSaveSettings() {
 	std::lock_guard<std::recursive_mutex> nrLock(g_nrStateMutex);
     // **串行化文件 IO**：present 线程（UiFramePresent 防抖落盘）和 F8 独立线程
     // （F8 线程也可直接落盘）都可能调它，并发写同一份 json 会损坏。
@@ -2289,7 +2298,7 @@ static void UiSaveSettings() {
 
     std::string text;
     if (!UiLoadText(path, text)) text = "{\n}\n";
-    if (text.find('{') == std::string::npos) return;
+    if (text.find('{') == std::string::npos) return false;
 
     const NrSettings& nr = g_state.nrSettings;
     const auto asBool = [](bool b) { return b ? "true" : "false"; };
@@ -2338,16 +2347,14 @@ static void UiSaveSettings() {
     for (int g = 0; g < SEM_GROUP_COUNT; ++g)
         UiApplyKey(text, "nrSemInt" + std::to_string(g), asFlt(nr.semanticIntensity[g]));
 
+    const auto temporary = path + L".tmp";
     FILE* f = nullptr;
-    if (_wfopen_s(&f, path.c_str(), L"wb") == 0 && f) {
-        fwrite(text.data(), 1, text.size(), f);
-        fclose(f);
-        static bool savedOnce = false;
-        if (!savedOnce) {
-            savedOnce = true;
-            D5_LOG_INFO(L"UI 参数已写入: %s", path.c_str());
-        }
-    }
+    if (_wfopen_s(&f, temporary.c_str(), L"wb") != 0 || !f) return false;
+    const bool written = fwrite(text.data(), 1, text.size(), f) == text.size();
+    const bool closed = fclose(f) == 0;
+    if (!written || !closed || !MoveFileExW(temporary.c_str(), path.c_str(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return false;
+    return true;
 }
 
 // RTX ON accent
@@ -2362,7 +2369,7 @@ static void UiMarkSave() {
 }
 
 // 产品版本号（面板标题行下方显示）
-static const char* kUiVersion = "0.3";
+static const char* kUiVersion = "0.4";
 
 // ---- 中英双语参数说明（复用自早期插件版，参考 NVIDIA DLSS5 文章措辞）----
 static const char* UiText(const char* zh, const char* en) { return g_state.uiLanguage == 2 ? en : zh; }
@@ -2449,6 +2456,9 @@ static void UiToggleEnabled() {
 static void UiTogglePanel() {
     g_uiOpen.store(!g_uiOpen.load(std::memory_order_relaxed),
                    std::memory_order_relaxed);
+    D5_LOG_INFO(L"ImGui panel %ls: render=%p root=%p foreground=%p",
+        g_uiOpen.load() ? L"opened" : L"closed", g_state.trackedWindow,
+        GetAncestor(g_state.trackedWindow, GA_ROOT), GetForegroundWindow());
 }
 
 // Present-thread close: release input immediately, including when no toast is
@@ -2974,7 +2984,7 @@ bool UiAdvanceFrameInput() noexcept {
         prevUiKey = uiKeyHeld();
     }
     const bool keyFocused = !g_state.trackedWindow ||
-        GetForegroundWindow() == g_state.trackedWindow;
+        DXL::HasPresentationFocus(g_state.trackedWindow);
     static bool prevEscape = false;
     const bool escapeDown = (GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0;
     const bool escapePressed = escapeDown && !prevEscape;
@@ -3081,12 +3091,13 @@ bool UiMayDraw() noexcept {
 // Called after NR and before the native presentation.
 void UiFramePresent(IDXGISwapChain* swapChain) noexcept {
     std::lock_guard<std::recursive_mutex> nrLock(g_nrStateMutex);
-    // A queue cached at startup is not the queue presenting FG frames. Only
-    // render on a chain whose actual factory queue we recorded successfully.
+    // Factory queue ownership also permits FG. Late injection requires fresh
+    // backbuffer writer evidence. FG heuristics additionally require native DXGI buffer access.
     DXGI_SWAP_CHAIN_DESC desc{};
     if (FAILED(swapChain->GetDesc(&desc))) return;
     if (!AcceptDxgiPresentation(g_state.api, desc.OutputWindow,
             desc.BufferDesc.Width, desc.BufferDesc.Height)) return;
+    const bool closeOnEscape = UiAdvanceFrameInput();
     bool ready = false;
     if (g_state.api == GraphicsApi::D3D11 && g_state.device11) {
         ID3D11DeviceContext* context = nullptr;
@@ -3104,9 +3115,39 @@ void UiFramePresent(IDXGISwapChain* swapChain) noexcept {
             }
             queue->Release();
         } else {
+            // Missed factory call: prove the current buffer's game writer,
+            // rather than using the first DIRECT queue observed in the process.
+            // FramePresent fences its UI work before returning. This fallback
+            // rejects unknown FG proxies. On a native DXGI chain the current
+            // buffer is the real presentation buffer, even when FG DLLs remain
+            // loaded. UI is serialized after its writer and drained before Present.
+            // This never changes NR's FG guard or publishes a guessed factory queue.
+            Microsoft::WRL::ComPtr<IDXGISwapChain3> chain3;
+            Microsoft::WRL::ComPtr<ID3D12Resource> buffer;
+            if (!g_state.scalerActive.load() &&
+                SUCCEEDED(swapChain->QueryInterface(IID_PPV_ARGS(&chain3))) &&
+                SUCCEEDED(swapChain->GetBuffer(chain3->GetCurrentBackBufferIndex(), IID_PPV_ARGS(&buffer)))) {
+                auto& tracker = PresentWriterTracker::Get();
+                tracker.WatchBuffer(buffer.Get());
+                auto writer = tracker.Acquire(buffer.Get(), NgxEavesdrop::Get().FrameGenerationActive(0),
+                    PresentWriterTracker::HasNativeBufferAccess(chain3.Get(), reinterpret_cast<void*>(
+                        SwapOriginal(swapChain, VT_SWAPCHAIN_GET_BUFFER, g_originalGetBuffer))));
+                if (writer) {
+                    Microsoft::WRL::ComPtr<ID3D12Device> device;
+                    if (SUCCEEDED(writer->GetDevice(IID_PPV_ARGS(&device))))
+                        ready = ReUi::InitOnce(device.Get(), writer.Get(), desc.OutputWindow, desc.BufferDesc.Format);
+                    static IDXGISwapChain* reported = nullptr;
+                    if (ready && reported != swapChain) {
+                        reported = swapChain;
+                        D5_LOG_INFO(L"ImGui late-injection writer recovered: chain=%p buffer=%p queue=%p; "
+                            L"submitted PRESENT barrier, UI fenced before native Present; native buffer ownership verified",
+                            swapChain, buffer.Get(), writer.Get());
+                    }
+                }
+            }
             static unsigned missingQueueReports = 0;
             static IDXGISwapChain* lastMissingQueueChain = nullptr;
-            if (lastMissingQueueChain != swapChain && missingQueueReports < 4) {
+            if (!ready && lastMissingQueueChain != swapChain && missingQueueReports < 4) {
                 lastMissingQueueChain = swapChain;
                 ++missingQueueReports;
                 D5_LOG_INFO(L"ImGui waiting for confirmed presentation queue: chain=%p hwnd=%p; "
@@ -3123,7 +3164,6 @@ void UiFramePresent(IDXGISwapChain* swapChain) noexcept {
     }
     if (!g_uiInitialised) return;
 
-    const bool closeOnEscape = UiAdvanceFrameInput();
     if (!UiMayDraw()) return;
     ReUi::FramePresent(swapChain, [closeOnEscape] {
         UiDrawToasts();
@@ -4111,6 +4151,27 @@ DWORD WINAPI CommandThread(LPVOID) {
 				}
 				break;
 			}
+            case Ipc::CommandId::EditNrParameter: {
+                unsigned index = 0; double value = 0;
+                if (!DecodeNrEdit(command.arg0, index, value)) break;
+                std::lock_guard<std::recursive_mutex> lock(g_nrStateMutex);
+                if (index >= 14 && !g_state.semanticAvailable) break;
+                unsigned field = 0;
+#define APPLY_NR(key, member, type, low, high) if (index == field++) g_state.nrSettings.member = static_cast<type>(value);
+                DXL_NR_EDIT_FIELDS(APPLY_NR)
+#undef APPLY_NR
+                if (index >= field) g_state.nrSettings.semanticIntensity[index - field] = float(value);
+                if (index == 12) {
+                    if (UsesD3D11Bridge(g_state.api)) g_state.nrFilter11.InvalidateOpticalHistory();
+                    else g_state.nrFilter.InvalidateOpticalHistory();
+                }
+                UiMarkSave();
+                const bool persisted = UiSaveSettings();
+                g_uiSavePending = !persisted;
+                D5_LOG_INFO(L"Launcher NR parameter applied: %hs=%.3f", NrEditSpecs[index].key.data(), value);
+                reply.accepted = persisted ? 1 : 0;
+                break;
+            }
 			case Ipc::CommandId::ReloadSettings:
 				g_state.settingsDirty.store(true);
 				D5_LOG_INFO(L"command ReloadSettings");
@@ -4164,6 +4225,7 @@ DWORD WINAPI InitThread(LPVOID) {
     g_startupDiagnostics.Entered();
     SetTeardownExtraCleanup(&CleanupDxl);
     CommandListTracker::Get().SetResetObserver([](void* ctx, ID3D12GraphicsCommandList* list) noexcept {
+        PresentWriterTracker::Get().Reset(list);
         static_cast<SegMaskFilter*>(ctx)->NotifyReset(list);
     }, &g_state.segMask);
 	g_startupDiagnostics.Mark(StartupDiagnostics::LogOpenEntered);
@@ -4341,7 +4403,7 @@ DWORD WINAPI InitThread(LPVOID) {
 
 }  // namespace
 
-BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
+BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
 	if (reason == DLL_PROCESS_ATTACH) {
 		g_startupDiagnostics.Open();
 		DisableThreadLibraryCalls(module);
@@ -4355,6 +4417,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
 		g_startupDiagnostics.Created(workerId, workerError);
 		if (worker) CloseHandle(worker);
 	} else if (reason == DLL_PROCESS_DETACH) {
+		g_processTerminating.store(reserved != nullptr, std::memory_order_release);
 		g_startupDiagnostics.Mark(StartupDiagnostics::ProcessDetach);
 		// 退出清理的最终兜底：main 直接 return 的进程（ExitProcess 销毁窗口
 		// 在 DLL_PROCESS_DETACH 之后，WM_NCDESTROY 路走不到）只有这里能接。

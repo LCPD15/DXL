@@ -494,3 +494,51 @@ element('reFrameworkDownload').handlers.click({preventDefault(){}});
 element('reShadeDownload').handlers.click({preventDefault(){}});
 assert.deepEqual(messages.map(m=>m.type),['openReFrameworkPage','openReShadePage']);
 console.log('PASS manual-injection default migration/custom preservation/conflicts, dynamic idle shortcuts, per-game FG threshold persistence and invalid-value fallback');
+
+// Optional launcher editing must never redirect a visible profile to another game.
+post('settings',{profiles:[
+ {id:'default',name:'Default',settings:{}},
+ {id:'editor-a',name:'A',exe:'a.exe',settings:{nrIntensity:0.4,nrSkinStructure:0.6}},
+ {id:'editor-b',name:'B',exe:'b.exe',settings:{nrIntensity:0.8}}
+]});
+run("activeId='editor-a'; lastStatus={target:'b.exe',currentPid:22}; renderAll()");
+assert.equal(element('nrExternalEdit').checked,false);
+assert.equal(element('nrParams').hidden,true);
+element('nrExternalEdit').checked=true;
+element('nrExternalEdit').handlers.change();
+assert.equal(element('nrParams').hidden,false);
+assert.equal(element('nrParams').disabled,false);
+messages.length=0;
+run("editLauncherNr({dataset:{key:'nrIntensity'},type:'range',value:'0.25'}); flushLauncherNr()");
+assert.equal(messages.at(-1).type,'editNrParameter');
+assert.equal(messages.at(-1).file,'a.exe.json');
+assert.equal(messages.at(-1).value,0.25);
+assert.equal(run("draft.profiles[2].settings.nrIntensity"),0.8);
+assert.equal(messages.some(x=>x.type==='applyProfile'),false);
+run("lastStatus={target:'a.exe',currentPid:11}; syncNrParamsFromCore({nrParamVersion:102,currentPid:11,nrParamIntensity:0.4,nrParamSkinStructure:0.6})");
+assert.equal(run("draft.profiles[1].settings.nrIntensity"),0.25,'stale core snapshot overwrote pending edit');
+post('nrParameterEdited',{file:'a.exe.json',key:'nrIntensity',value:0.25,ok:true});
+assert.equal(run("saved.profiles[1].settings.nrIntensity"),0.25);
+assert.equal(messages.at(-1).type,'applySettings');
+assert.equal(messages.at(-1).noReload,1);
+run("editLauncherNr({dataset:{key:'nrIntensity'},type:'range',value:'0.3'}); flushLauncherNr(); editLauncherNr({dataset:{key:'nrIntensity'},type:'range',value:'0.5'})");
+post('nrParameterEdited',{file:'a.exe.json',key:'nrIntensity',value:0.3,ok:true});
+assert.equal(run("nrPending.get('a.exe.json:nrIntensity').value"),0.5,'old acknowledgement consumed newer edit');
+run("flushLauncherNr()");
+post('nrParameterEdited',{file:'a.exe.json',key:'nrIntensity',value:0.5,ok:false});
+assert.equal(run("saved.profiles[1].settings.nrIntensity"),0.25,'failed edit was saved as successful');
+assert.match(element('panelHotkeyHint').textContent,/未保存/);
+messages.length=0;
+run("editLauncherNr({dataset:{key:'nrRenderScale'},type:'range',value:'0.75'})");
+assert.equal(messages.length,0,'resource rebuild applied before release');
+run("flushLauncherNr()");
+assert.equal(messages.at(-1).key,'nrRenderScale');
+run("activeId='editor-b'; renderAll()");
+assert.equal(element('nrExternalEdit').checked,false,'opt-in leaked into another profile');
+run("activeId='default'; renderAll()");
+assert.equal(element('nrExternalEdit').disabled,true);
+const specs=run('NR_PARAMS');
+assert.equal(specs.find(p=>p.key==='nrSkinStructure').max,1);
+assert.equal(specs.find(p=>p.key==='nrPreset').options.length,5);
+assert.equal(specs.find(p=>p.key==='nrTrueLayers').max,5);
+console.log('PASS NR editor opt-in, profile isolation, live command path, pending status/ack races, save acknowledgement and slider release');

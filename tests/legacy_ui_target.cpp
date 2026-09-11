@@ -1,6 +1,7 @@
 // Complete-core UI-only regression. Toggle the real panel through production
 // IPC; no keyboard/mouse input is synthesized. Read only this target's pixels.
 #include "../src/common/IpcClient.h"
+#include "../src/core/PresentationFocus.h"
 #include <GL/gl.h>
 #include <d3d9.h>
 #include <wrl/client.h>
@@ -43,7 +44,8 @@ static unsigned Changed(const unsigned char* bytes,unsigned pitch,bool bgra) {
     return count;
 }
 int wmain(int argc,wchar_t** argv) {
-    if(argc!=3)return 2;
+    if(argc!=3&&argc!=4)return 2;
+    const bool embedded=argc==4&&wcscmp(argv[3],L"--child-window")==0;
     const bool baseline=wcscmp(argv[1],L"--baseline")==0;
     const bool d3d9=wcscmp(argv[2],L"D3D9")==0;
     setvbuf(stdout,nullptr,_IONBF,0);
@@ -52,10 +54,13 @@ int wmain(int argc,wchar_t** argv) {
     WNDCLASSW wc{};wc.style=CS_OWNDC;wc.lpfnWndProc=WindowProc;
     wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"DXLLegacyUiOnlyFixture";
     wc.hCursor=LoadCursor(nullptr,IDC_ARROW);RegisterClassW(&wc);
-    RECT wr{0,0,W,H};AdjustWindowRect(&wr,WS_OVERLAPPEDWINDOW,FALSE);
-    HWND window=CreateWindowExW(0,wc.lpszClassName,L"DXL UI-only regression (no NR)",WS_OVERLAPPEDWINDOW,
+    RECT wr{0,0,LONG(W+(embedded?40:0)),LONG(H+(embedded?60:0))};AdjustWindowRect(&wr,WS_OVERLAPPEDWINDOW,FALSE);
+    HWND host=CreateWindowExW(0,wc.lpszClassName,L"DXL UI-only regression (no NR)",WS_OVERLAPPEDWINDOW,
         120,120,wr.right-wr.left,wr.bottom-wr.top,nullptr,nullptr,wc.hInstance,nullptr);
+    HWND window=embedded?CreateWindowExW(0,wc.lpszClassName,L"Embedded render surface",WS_CHILD|WS_VISIBLE,
+        20,30,W,H,host,nullptr,wc.hInstance,nullptr):host;
     if(!window)return 3;
+    if(!DXL::SamePresentationWindowTree(window,host))return 11;
     wchar_t eventName[128]{};swprintf_s(eventName,L"Local\\DXL.Ready.%lu",GetCurrentProcessId());
     HANDLE ready=CreateEventW(nullptr,TRUE,FALSE,eventName);
     if(!ready||(!baseline&&(!LoadLibraryW(argv[1])||WaitForSingleObject(ready,15000)!=WAIT_OBJECT_0)))return 4;
@@ -80,20 +85,26 @@ int wmain(int argc,wchar_t** argv) {
         if(!format||!SetPixelFormat(dc,format,&p))return 8;
         gl=wglCreateContext(dc);if(!gl||!wglMakeCurrent(dc,gl))return 9;
     }
-    ShowWindow(window,SW_SHOWNORMAL);
+    ShowWindow(host,SW_SHOWNORMAL);
+    // The harness starts the console hidden. The first ShowWindow inherits
+    // STARTUPINFO; explicitly expose only the framebuffer fixture, without
+    // activating it, so native presentation is not filtered as a hidden helper.
+    ShowWindow(host,SW_SHOWNA);
+    printf("embedded=%u render=%p host=%p focusPolicy=PASS\n",embedded,window,host);
     printf("PID=%lu API=%s visible=%u IPC panel toggles; no synthetic input\n",GetCurrentProcessId(),d3d9?"D3D9Ex":"OpenGL",IsWindowVisible(window));
     DXL::StatusView status;DXL::Ipc::Status last{};
     unsigned errors=0,baseChanged=~0u,openChanged=0,closedChanged=~0u,frames=0;
     bool opened=false,closed=false,clipObserved=false,clipRestored=false;
     RECT initialClip{};const bool canReadClip=GetClipCursor(&initialClip)!=FALSE;
+    // Allow cold driver initialization plus the 7.5-second ready toast to expire.
     const auto start=GetTickCount64();
-    while(GetTickCount64()-start<14500){
+    while(GetTickCount64()-start<18500){
         MSG msg{};while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){
             if(msg.message==WM_QUIT)return 10;TranslateMessage(&msg);DispatchMessageW(&msg);
         }
         const auto ms=GetTickCount64()-start;
-        if(ms>=8500&&!opened){opened=baseline||DXL::SendCommand(GetCurrentProcessId(),DXL::Ipc::CommandId::TogglePerfWindow);if(!opened)++errors;}
-        if(ms>=11500&&opened&&!closed){closed=baseline||DXL::SendCommand(GetCurrentProcessId(),DXL::Ipc::CommandId::TogglePerfWindow);if(!closed)++errors;}
+        if(ms>=12500&&!opened){opened=baseline||DXL::SendCommand(GetCurrentProcessId(),DXL::Ipc::CommandId::TogglePerfWindow);if(!opened)++errors;}
+        if(ms>=15500&&opened&&!closed){closed=baseline||DXL::SendCommand(GetCurrentProcessId(),DXL::Ipc::CommandId::TogglePerfWindow);if(!closed)++errors;}
         if(d3d9){
             if(FAILED(device->Clear(0,nullptr,D3DCLEAR_TARGET,D3DCOLOR_XRGB(12,24,40),1,0))||
                 FAILED(device->PresentEx(nullptr,nullptr,nullptr,nullptr,0)))++errors;
@@ -103,8 +114,8 @@ int wmain(int argc,wchar_t** argv) {
             if(!SwapBuffers(dc))++errors;
         }
         ++frames;
-        const bool sample=(ms>=8000&&ms<8250&&baseChanged==~0u)||
-            (ms>=10500&&ms<11000&&openChanged==0)||(ms>=13500&&closedChanged==~0u);
+        const bool sample=(ms>=12000&&ms<12250&&baseChanged==~0u)||
+            (ms>=14500&&ms<15000&&openChanged==0)||(ms>=17500&&closedChanged==~0u);
         if(sample){
             unsigned changed=0;
             if(d3d9){
@@ -116,10 +127,10 @@ int wmain(int argc,wchar_t** argv) {
                 glReadBuffer(GL_FRONT);glReadPixels(0,0,W,H,GL_RGBA,GL_UNSIGNED_BYTE,pixels.data());
                 changed=Changed(pixels.data(),W*4,false);glReadBuffer(GL_BACK);
             }
-            if(ms<8500)baseChanged=changed;else if(ms<11500)openChanged=changed;else closedChanged=changed;
+            if(ms<12500)baseChanged=changed;else if(ms<15500)openChanged=changed;else closedChanged=changed;
             RECT clip{};const bool gotClip=GetClipCursor(&clip)!=FALSE;
-            if(ms>8500&&ms<11500&&canReadClip&&gotClip&&!EqualRect(&clip,&initialClip)&&GetForegroundWindow()==window)clipObserved=true;
-            if(ms>11500&&canReadClip&&gotClip&&EqualRect(&clip,&initialClip))clipRestored=true;
+            if(ms>12500&&ms<15500&&canReadClip&&gotClip&&!EqualRect(&clip,&initialClip)&&GetForegroundWindow()==window)clipObserved=true;
+            if(ms>15500&&canReadClip&&gotClip&&EqualRect(&clip,&initialClip))clipRestored=true;
             printf("sample ms=%llu changedPixels=%u foreground=%u clipReadable=%u clip=%ld,%ld,%ld,%ld\n",
                 ms,changed,GetForegroundWindow()==window,gotClip,clip.left,clip.top,clip.right,clip.bottom);
         }
@@ -131,7 +142,7 @@ int wmain(int argc,wchar_t** argv) {
         errors==0&&last.nrEvaluateCount==0&&last.nrEvaluateFailures==0&&(!clipObserved||clipRestored);
     printf("LEGACY_UI_RESULT passed=%u frames=%u baseline=%u open=%u closed=%u nr=%llu errors=%u cursorConstrained=%u cursorRestored=%u\n",
         passed,frames,baseChanged,openChanged,closedChanged,last.nrEvaluateCount,errors,clipObserved,clipObserved&&clipRestored);
-    puts("teardown DestroyWindow");DestroyWindow(window);
+    puts("teardown DestroyWindow");DestroyWindow(host);
     puts("teardown backbuffer/readback");backbuffer.Reset();readback.Reset();
     puts("teardown D3D9 device/factory");device.Reset();factory.Reset();
     if(gl){wglMakeCurrent(nullptr,nullptr);wglDeleteContext(gl);ReleaseDC(window,dc);}

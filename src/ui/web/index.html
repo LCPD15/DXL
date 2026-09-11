@@ -283,7 +283,7 @@
 						<p class="page-sub" id="settingsFor">当前配置：默认</p>
 					</div>
 
-					<div class="card">
+					<div class="card compact-params" id="launchSettingsCard">
 						<h2>启动与注入</h2>
 						<div class="row">
 							<label class="row-label" for="profileName">配置名称</label>
@@ -326,13 +326,13 @@
                         </details>
 					</div>
 
-					<div class="card">
+					<div class="card compact-params" id="nrSettingsCard">
 						<h2>DLSS5 Neural Rendering</h2>
 						<p class="card-note">
 							神经渲染滤镜。开启原生 DLSS 时，在超分 Evaluate 之后处理 NR，供后续帧生成使用；没有原生 DLSS 时自动回退 Present。优先使用原生运动矢量，缺少时可自动计算光流。
 						</p>
 
-						<div class="row">
+						<div class="nr-feature-grid">
 							<!-- 总开关。core 只在启动时读一次配置里的 masterEnabled，
 							     运行中切它靠 SetEnabled 命令（app.js 的 change 监听发）。
 							     Del 按下的那次选择也会写回这里（onMasterToggled）。 -->
@@ -432,12 +432,14 @@
 						</p>
 					</div>
 
-					<!-- DLSSNR 参数（只读）。独立成卡（用户拍板）：不和上面的配置挤在一起。
-					     全部置灰不可改 —— 唯一调参入口是游戏内浮层（End），
-					     值来自状态块（core 随每一拍报回来），浮层里改了它会跟着变。 -->
+					<!-- Optional NR editor; read-only until explicitly enabled. -->
 					<div class="card">
-						<h2>DLSSNR 参数</h2>
-						<p class="card-note" id="panelHotkeyHint">只读显示 —— 请在游戏内 ImGui 面板调参（默认 End 打开）。</p>
+						<div class="nr-editor-heading"><h2>DLSSNR 参数</h2><label class="switch"><input type="checkbox" id="nrExternalEdit" aria-label="工具内调参" aria-describedby="nrExternalHint"><span class="slider-track"></span></label></div>
+                        <p class="hint" id="nrExternalHint">仅当游戏内浮层无法呼出时使用</p>
+                        <p class="card-note" id="panelHotkeyHint">只读显示 —— 请在游戏内 ImGui 面板调参（默认 End 打开）。</p>
+                        <fieldset id="nrParams" class="nr-editor-fields" hidden disabled></fieldset>
+                        <details id="nrSemanticDetails" hidden><summary>语义蒙板（实验性功能）</summary><p class="hint">试验功能，效果可能不好。需要完整包中的语义组件。</p><fieldset id="nrSemanticParams" class="nr-editor-fields" disabled></fieldset></details>
+
 						<div class="ro-grid" id="nrRoGrid">
 							<div class="ro-item"><span>风格（Style）</span><b id="nrRoStyle">—</b></div>
 							<div class="ro-item"><span>强度（Intensity）</span><b id="nrRoIntensity">—</b></div>
@@ -462,10 +464,7 @@
 
 				</section>
 
-				<!-- DLSS5 参数页已删（用户拍板）：和游戏内浮层完全重复，两条写入路径
-				     只产出间歇性同步 bug（四轮排查没查清）。游戏内浮层（End）是
-				     **唯一**调参入口：全部参数 + 悬停说明 + 拖动，改动由
-				     app.js 的 syncNrParamsFromCore 落盘供下一局读取。 -->
+
 
 				<!-- ---------------- 日志 ---------------- -->
 				<section class="page" data-page="debug">

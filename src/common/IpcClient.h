@@ -74,18 +74,19 @@ inline bool SendCommand(DWORD pid, Ipc::CommandId id, uint32_t arg0 = 0) {
 	wchar_t name[128]{};
 	_snwprintf_s(name, _TRUNCATE, L"%s.%lu", Ipc::COMMAND_PIPE_BASE, pid);
 
-	HANDLE pipe = CreateFileW(name, GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-		OPEN_EXISTING, 0, nullptr);
-	if (pipe == INVALID_HANDLE_VALUE) {
-		// core 可能正好在处理上一个连接，等一下再试一次
-		if (GetLastError() != ERROR_PIPE_BUSY ||
-			!WaitNamedPipeW(name, 1000)) {
-			return false;
-		}
-		pipe = CreateFileW(name, GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-			OPEN_EXISTING, 0, nullptr);
-		if (pipe == INVALID_HANDLE_VALUE) return false;
-	}
+    HANDLE pipe = INVALID_HANDLE_VALUE;
+    const auto deadline = GetTickCount64() + 1000;
+    for (;;) {
+        pipe = CreateFileW(name, GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+            OPEN_EXISTING, 0, nullptr);
+        if (pipe != INVALID_HANDLE_VALUE) break;
+        const auto error = GetLastError();
+        if ((error != ERROR_PIPE_BUSY && error != ERROR_FILE_NOT_FOUND) ||
+            GetTickCount64() >= deadline) return false;
+        // The server recreates its instance between replies. Both a busy pipe
+        // and the short no-instance gap are transient; never retry a sent edit.
+        Sleep(10);
+    }
 
 	DWORD mode = PIPE_READMODE_MESSAGE;
 	SetNamedPipeHandleState(pipe, &mode, nullptr, nullptr);

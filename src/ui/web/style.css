@@ -1144,3 +1144,32 @@ code {
 /* Startup updates share the application's existing dialog colors and buttons. */
 .profile-delete-dialog.update-dialog { width: min(680px, 90vw); max-height: 85vh; }
 .update-dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 45vh; overflow: auto; font: inherit; line-height: 1.6; padding: 14px; border: 1px solid #8885; border-radius: 8px; }
+
+/* Compact only parameter rows, never hints or explanatory small print. */
+.compact-params .row { padding: 8.8px 0; gap: 12.8px; }
+.compact-params .row-label { font-size: 10.4px; }
+.compact-params .row-field input[type="text"], .compact-params .row-field select { font-size: 10.4px; }
+.compact-params .row-value { font-size: 9.6px; }
+.compact-params .timing-fieldset legend { font-size: 12.8px; margin-bottom: 11.2px; }
+.compact-params .timing-choice > span { font-size: 10.4px; min-height: 78.4px; padding: 9.6px; }
+.compact-params .timing-choice small { font-size: 12px; }
+.nr-feature-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12.8px; align-items: center; }
+.nr-feature-grid .row { grid-template-columns: minmax(0,1fr) auto; }
+.nr-feature-grid > .explain, .nr-feature-grid > .hint:last-child { grid-column: 1/-1; }
+.nr-feature-grid .row-field { min-width: 0; }
+.nr-feature-grid select { max-width: 150px; }
+.nr-editor-heading { display: flex; align-items: center; gap: 14px; }
+.nr-editor-heading h2 { margin: 0; }
+#nrExternalHint { margin: 6px 0 10px; }
+.nr-editor-fields { border: 0; padding: 0; margin: 12px 0; min-width: 0; }
+.nr-editor-fields[hidden], #nrSemanticDetails[hidden], #nrRoGrid[hidden] { display: none; }
+.nr-editor-fields .row { grid-template-columns: minmax(100px,1fr) minmax(80px,1fr); padding: 7px 0; gap: 12px; }
+#nrSemanticDetails summary { cursor: pointer; margin-top: 12px; }
+@container (max-width: 400px) { .nr-feature-grid { grid-template-columns: 1fr; } }
+
+/* The lower editor keeps its normal control text size. */
+.nr-editor-fields .row-label { font-size: 13px; }
+.nr-editor-fields .row-value { font-size: 12px; }
+.nr-editor-fields .row-field select { font-size: 13px; }
+
+.nr-editor-fields input[type="range"] { min-width: 0; width: 100%; }

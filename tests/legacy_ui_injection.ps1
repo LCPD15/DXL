@@ -1,6 +1,7 @@
-param([string]$CoreDir='', [ValidateSet('Both','OpenGL','D3D9')][string]$Api='Both',
-    [switch]$Baseline, [ValidateRange(1,5)][int]$Repeat=1)
+param([string]$CoreDir='', [ValidateSet('Both','OpenGL','D3D9','D3D12')][string]$Api='Both',
+    [switch]$Baseline, [switch]$ChildWindow, [ValidateRange(1,5)][int]$Repeat=1)
 $ErrorActionPreference='Stop'
+if($Api -eq 'D3D12' -and ($Baseline -or $ChildWindow)){throw 'D3D12 fixture requires injection into a top-level window'}
 . (Join-Path $PSScriptRoot '../scripts/paths.ps1')
 if(!$CoreDir){$CoreDir=Join-Path $BuildRoot 'dxl-0.1-graphics-compat'}
 $runRoot=Resolve-DxlOutput '' ('legacy-ui-e2e-'+$PID)
@@ -15,10 +16,15 @@ $vcvars=Join-Path $vs 'VC/Auxiliary/Build/vcvars64.bat'
 & cmd.exe /d /s /c ('call "{0}" >nul && set' -f $vcvars)|ForEach-Object {
     if($_ -match '^([^=]+)=(.*)$'){Set-Item -LiteralPath ('Env:'+$matches[1]) -Value $matches[2]}
 }
+if ($Api -eq 'D3D12') {
+    & cl.exe /nologo /LD /MT ('/Fo'+(Join-Path $runRoot 'fg-stub.obj')) ('/Fe'+(Join-Path $stage 'nvngx_dlssg.dll')) (Join-Path $PSScriptRoot 'fg_presence_stub.cpp') /link ('/IMPLIB:'+(Join-Path $runRoot 'fg-stub.lib'))
+    if ($LASTEXITCODE) { throw 'FG presence stub build failed' }
+}
 $fixtureName='legacy-ui-'+$PID+'.exe'
 $fixture=Join-Path $runRoot $fixtureName
+$targetSource=if($Api -eq 'D3D12'){'late_ui_target.cpp'}else{'legacy_ui_target.cpp'}
 & cl.exe /nologo /O2 /MT /EHsc /std:c++20 /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /DWIN32_LEAN_AND_MEAN `
-    ('/Fo'+(Join-Path $runRoot 'target.obj')) ('/Fe'+$fixture) (Join-Path $PSScriptRoot 'legacy_ui_target.cpp')
+    ('/Fo'+(Join-Path $runRoot 'target.obj')) ('/Fe'+$fixture) (Join-Path $PSScriptRoot $targetSource)
 if($LASTEXITCODE){throw 'Legacy UI target compilation failed'}
 $profileRoot=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'DXL/profiles'
 $profile=Join-Path $profileRoot ($fixtureName+'.json')
@@ -31,8 +37,10 @@ try {
         $label=$targetApi+'-'+$run
         $stdout=Join-Path $runRoot ($label+'.stdout.log');$stderr=Join-Path $runRoot ($label+'.stderr.log')
         $loadArgument=if($Baseline){'--baseline'}else{'"'+(Join-Path $stage 'DXL-core.dll')+'"'}
-        $process=Start-Process -FilePath $fixture -WorkingDirectory $runRoot -ArgumentList @($loadArgument,$targetApi) `
-            -WindowStyle Normal -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        $targetArguments=@($loadArgument,$targetApi)
+        if($ChildWindow){$targetArguments+='--child-window'}
+        $process=Start-Process -FilePath $fixture -WorkingDirectory $runRoot -ArgumentList $targetArguments `
+            -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
         Write-Output ('UI fixture '+$targetApi+' PID='+$process.Id+' output='+$runRoot)
         if(!$process.WaitForExit(40000)){
             $process.Refresh()
@@ -43,6 +51,11 @@ try {
         $coreLog=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) ('DXL/diagnostics/logs/DXL-core-'+$process.Id+'.log')
         if(Test-Path -LiteralPath $coreLog){Copy-Item -LiteralPath $coreLog -Destination (Join-Path $runRoot ($label+'.core.log'))}
         Get-Content -LiteralPath $stdout
+        if ($Api -eq 'D3D12') {
+            $persisted = Get-Content -LiteralPath $params -Raw | ConvertFrom-Json
+            if ([Math]::Abs($persisted.nrSkinStructure - 0.37) -gt 0.001) { throw 'Core NR edit did not persist' }
+            if ((Get-Content -LiteralPath $coreLog -Raw) -notmatch 'FG Present guard: active=1') { throw 'FG heuristic not reproduced' }
+        }
         if($process.ExitCode -ne 0){throw ('Legacy '+$targetApi+' UI fixture failed: '+$process.ExitCode)}
     }}
     Write-Output ('PASS '+$Api+' UI-only framebuffer readback; baseline='+$Baseline+' repeats='+$Repeat+': '+$runRoot)

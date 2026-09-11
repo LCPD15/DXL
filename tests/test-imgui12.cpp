@@ -9,6 +9,7 @@
 #include <thread>
 #include <vector>
 #include "../src/core/ReUiBackend.cpp"
+#include "../src/core/PresentWriterTracker.h"
 using Microsoft::WRL::ComPtr;
 static void Check(bool b, const char* s) { if (!b) throw std::runtime_error(s); }
 static void HR(HRESULT hr) { if (FAILED(hr)) { printf("HRESULT %08X\n", unsigned(hr)); throw std::runtime_error("D3D call"); } }
@@ -81,12 +82,14 @@ int main() try {
     HANDLE event=CreateEventW(nullptr,FALSE,FALSE,nullptr);
     auto submit=[&](ID3D12CommandQueue* q) {
         HR(list->Close()); ID3D12CommandList* lists[]{list.Get()}; q->ExecuteCommandLists(1,lists);
+        DXL::PresentWriterTracker::Get().Submitted(q,1,lists);
         HR(q->Signal(fence.Get(),++serial)); HR(fence->SetEventOnCompletion(serial,event));
         Check(WaitForSingleObject(event,5000)==WAIT_OBJECT_0,"test queue timeout");
     };
     auto barrier=[&](ID3D12Resource* r,D3D12_RESOURCE_STATES before,D3D12_RESOURCE_STATES after) {
         D3D12_RESOURCE_BARRIER b{}; b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         b.Transition={r,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,before,after}; list->ResourceBarrier(1,&b);
+        DXL::PresentWriterTracker::Get().Barriers(list.Get(),1,&b);
     };
     D3D12_HEAP_PROPERTIES hp{}; hp.Type=D3D12_HEAP_TYPE_READBACK;
     D3D12_RESOURCE_DESC rd{}; rd.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER; rd.Width=256; rd.Height=1;
@@ -111,12 +114,39 @@ int main() try {
                 Check(ReUi::WaitIdle(),"pre-resize UI drain"); HR(sc->ResizeBuffers(sd.BufferCount,sd.Width+8,sd.Height,sd.Format,0));
             }
             ComPtr<ID3D12Resource> bb; HR(sc->GetBuffer(sc->GetCurrentBackBufferIndex(),IID_PPV_ARGS(&bb)));
+            auto& writers=DXL::PresentWriterTracker::Get();
+            writers.WatchBuffer(bb.Get());
+            // Consume any previous readback submission, then require fresh
+            // game evidence for this presentation of this exact resource.
+            writers.Acquire(bb.Get(),false);
+            writers.Reset(list.Get());
+            Check(!writers.Acquire(bb.Get(),false),"stale writer evidence reused");
             HR(alloc->Reset()); HR(list->Reset(alloc.Get(),nullptr));
             const float black[]{0,0,0,1}; auto view=rtv->GetCPUDescriptorHandleForHeapStart();
             device->CreateRenderTargetView(bb.Get(),nullptr,view);
             barrier(bb.Get(),D3D12_RESOURCE_STATE_PRESENT,D3D12_RESOURCE_STATE_RENDER_TARGET);
             list->ClearRenderTargetView(view,black,0,nullptr);
-            barrier(bb.Get(),D3D12_RESOURCE_STATE_RENDER_TARGET,D3D12_RESOURCE_STATE_PRESENT); submit(q);
+            barrier(bb.Get(),D3D12_RESOURCE_STATE_RENDER_TARGET,D3D12_RESOURCE_STATE_PRESENT);
+            Check(!writers.Acquire(bb.Get(),false),"unsubmitted list authorized UI");
+            submit(q);
+            Check(!writers.Acquire(bb.Get(),true),"writer fallback authorized unknown FG proxy");
+            Check(DXL::PresentWriterTracker::HasNativeBufferAccess(sc.Get()), "native DXGI buffer access not recognized");
+            void* foreignTable[37]{};
+            foreignTable[9] = foreignTable[36] = reinterpret_cast<void*>(&main);
+            struct { void** table; } proxy{foreignTable};
+            Check(!DXL::PresentWriterTracker::HasNativeBufferAccess(reinterpret_cast<IDXGISwapChain3*>(&proxy)), "foreign FG proxy accepted as native DXGI");
+            auto recovered=writers.Acquire(bb.Get(),true,DXL::PresentWriterTracker::HasNativeBufferAccess(sc.Get()));
+            Check(recovered.Get()==q,"wrong late-injection backbuffer writer");
+            Check(!writers.Acquire(bb.Get(),false),"writer reused without a new submission");
+            writers.Reset(list.Get());
+            D3D12_RESOURCE_BARRIER own{}; own.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            own.Transition={bb.Get(),D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,D3D12_RESOURCE_STATE_RENDER_TARGET,D3D12_RESOURCE_STATE_PRESENT};
+            writers.Barriers(list.Get(),1,&own,reinterpret_cast<void*>(&main));
+            ID3D12CommandList* ownLists[]{list.Get()}; writers.Submitted(queues[1-segment%2].Get(),1,ownLists);
+            Check(!writers.Acquire(bb.Get(),false),"DXL's own commands authorized a different queue");
+            { DXL::PresentWriterTracker::IgnoreScope ownScope;
+              writers.Barriers(list.Get(),1,&own); writers.Submitted(q,1,ownLists); }
+            Check(!writers.Acquire(bb.Get(),false),"forwarded internal commands escaped ignore scope");
             if (frame==0) printf("Initializing segment %u\n",segment);
             // The game owns the HWND on a different thread from Present.
             bool initialized=false;

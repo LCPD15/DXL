@@ -1,4 +1,7 @@
 'use strict';
+const nrPending = new Map();
+let nrEditTimer = 0;
+let nrEditorProfile = '';
 
 // UI 侧维护整个配置模型（主题、快捷键、每游戏配置文件），宿主不解析它 —— 见
 // main.cpp 顶部的说明。
@@ -33,34 +36,367 @@ const OPTIONS = {
 
 };
 
-// DLSS5 / DLSSNR 参数。每一项都直接对应 nvngx_dlssnr.dll 的一个参数键
-// （见 README 的对照表），core 侧一一透传，中间没有翻译层。
-//
-// **含义来自 NVIDIA 自己的新闻稿**（nvidia.cn/geforce/news/dlss-5-3d-guided-
-// neural-rendering/），那篇里放出的开发者面板和这些键是一一对应的：
-//   面板 GLOBAL CONTROLS 的 Structure Intensity -> LocalStructureStrength
-//   面板 GLOBAL CONTROLS 的 Tone Intensity      -> LocalToneStrength
-//   面板的 MODELS（Model A/B/C）                 -> Hint.Render.Preset
-//   面板的 MODEL AUTOMASK                        -> UseAutoMask
-// 原来这些标签只是英文键名照抄，玩家没法知道该动哪个。
 const NR_PARAMS = [
-	{ key: 'nrPreset', label: '模型（Render Preset）', type: 'select', options: [[0, '0 Default'], [1, '1 Preset #1'], [2, '2 Preset #2'], [3, '3 Preset #3']],
-	  hint: '不同权重的模型，输出风格不一样。对应官方面板里的 Model A / B / C。' },
-	{ key: 'nrStyle', label: '风格（Style）', type: 'select', options: [[0, '0 Default'], [1, '1 Natural'], [2, '2 Cinematic']] },
-	{ key: 'nrIntensity', label: '总强度（Intensity）', type: 'range', min: 0, max: 1, step: 0.05,
-	  hint: '归零时画面和不开一样，但**开销照付**（神经图是固定的，开销只跟像素数走）。' },
-	{ key: 'nrLocalTone', label: '色调强度（Tone）', type: 'range', min: 0, max: 2, step: 0.05,
-	  hint: '管**低频**：大范围的光照和色彩响应。' },
-	{ key: 'nrLocalStructure', label: '结构强度（Structure）', type: 'range', min: 0, max: 2, step: 0.05,
-	  hint: '管**高频**：环境光遮蔽、接触阴影、反射、次表面散射这类细节。' },
-	{ key: 'nrSkinStructure', label: '皮肤结构强度（Skin）', type: 'range', min: 0, max: 2, step: 0.05,
-	  hint: '单独控制皮肤上的结构强度。0 = 不单独干预皮肤。' },
-	{ key: 'nrAutoMask', label: '语义自动遮罩（Auto Mask）', type: 'switch',
-	  hint: '让模型**自己识别**画面里的角色和环境，只增强环境、不动角色。' +
-	        '不需要我们提供任何东西 —— 识别是模型内部做的。' },
-	{ key: 'nrUiCorrection', label: 'UI 修正（UI Correction）', type: 'switch',
-	  hint: '⚠ **现在开了没用。** 它要的是单独的 UI 图层（DLSSNR.UI + UIAlpha 两张图），' +
-	        '而我们是后处理注入，拿不到游戏把 UI 合成之前的那一层。' }
+  {
+    "key": "nrPreset",
+    "label": "模型（Render Preset）",
+    "type": "select",
+    "options": [
+      [
+        0,
+        "0 Quality"
+      ],
+      [
+        1,
+        "1"
+      ],
+      [
+        2,
+        "2"
+      ],
+      [
+        3,
+        "3"
+      ],
+      [
+        4,
+        "4"
+      ]
+    ]
+  },
+  {
+    "key": "nrStyle",
+    "label": "风格（Style）",
+    "type": "select",
+    "options": [
+      [
+        0,
+        "Default"
+      ],
+      [
+        1,
+        "Natural"
+      ],
+      [
+        2,
+        "Cinematic"
+      ]
+    ]
+  },
+  {
+    "key": "nrIntensity",
+    "label": "强度（Intensity）",
+    "type": "range",
+    "min": 0,
+    "max": 1,
+    "step": 0.01
+  },
+  {
+    "key": "nrColourStrength",
+    "label": "色彩强度",
+    "type": "range",
+    "min": 0,
+    "max": 1,
+    "step": 0.01
+  },
+  {
+    "key": "nrLocalTone",
+    "label": "局部色调",
+    "type": "range",
+    "min": 0,
+    "max": 2,
+    "step": 0.01
+  },
+  {
+    "key": "nrLocalStructure",
+    "label": "局部结构",
+    "type": "range",
+    "min": 0,
+    "max": 2,
+    "step": 0.01
+  },
+  {
+    "key": "nrSkinStructure",
+    "label": "皮肤结构",
+    "type": "range",
+    "min": 0,
+    "max": 1,
+    "step": 0.01
+  },
+  {
+    "key": "nrAutoMask",
+    "label": "自动遮罩（Auto Mask）",
+    "type": "switch"
+  },
+  {
+    "key": "nrUiCorrection",
+    "label": "UI 修正",
+    "type": "switch"
+  },
+  {
+    "key": "nrRenderScale",
+    "label": "处理分辨率",
+    "type": "range",
+    "min": 0.5,
+    "max": 1,
+    "step": 0.01
+  },
+  {
+    "key": "nrSelfLayers",
+    "label": "自叠层（Self Layers）",
+    "type": "range",
+    "min": 1,
+    "max": 3,
+    "step": 0.01
+  },
+  {
+    "key": "nrTrueLayers",
+    "label": "真叠层（True NR Layers）",
+    "type": "range",
+    "min": 1,
+    "max": 5,
+    "step": 1
+  },
+  {
+    "key": "nrOpticalFlow",
+    "label": "自动光流",
+    "type": "switch"
+  },
+  {
+    "key": "nrOpticalFlowQuality",
+    "label": "光流质量",
+    "type": "select",
+    "options": [
+      [
+        0,
+        "Performance"
+      ],
+      [
+        1,
+        "Balanced"
+      ],
+      [
+        2,
+        "Quality"
+      ]
+    ]
+  },
+  {
+    "key": "nrSemanticMask",
+    "label": "语义蒙板（实验性功能）",
+    "type": "switch",
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemBgInt",
+    "label": "背景强度",
+    "type": "range",
+    "min": 0,
+    "max": 1,
+    "step": 0.01,
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemanticFlipY",
+    "label": "SR 输入上下翻转",
+    "type": "switch",
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemanticFeather",
+    "label": "边缘羽化",
+    "type": "range",
+    "min": 0,
+    "max": 8,
+    "step": 0.1,
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemanticDebugView",
+    "label": "游戏内蒙板预览",
+    "type": "switch",
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemGroup0",
+    "label": "人物",
+    "type": "group",
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemInt0",
+    "label": "人物强度",
+    "type": "range",
+    "min": 0,
+    "max": 1,
+    "step": 0.01,
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemGroup1",
+    "label": "车辆",
+    "type": "group",
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemInt1",
+    "label": "车辆强度",
+    "type": "range",
+    "min": 0,
+    "max": 1,
+    "step": 0.01,
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemGroup2",
+    "label": "动物",
+    "type": "group",
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemInt2",
+    "label": "动物强度",
+    "type": "range",
+    "min": 0,
+    "max": 1,
+    "step": 0.01,
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemGroup3",
+    "label": "街道设施",
+    "type": "group",
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemInt3",
+    "label": "街道设施强度",
+    "type": "range",
+    "min": 0,
+    "max": 1,
+    "step": 0.01,
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemGroup4",
+    "label": "运动用品",
+    "type": "group",
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemInt4",
+    "label": "运动用品强度",
+    "type": "range",
+    "min": 0,
+    "max": 1,
+    "step": 0.01,
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemGroup5",
+    "label": "食物",
+    "type": "group",
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemInt5",
+    "label": "食物强度",
+    "type": "range",
+    "min": 0,
+    "max": 1,
+    "step": 0.01,
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemGroup6",
+    "label": "餐具",
+    "type": "group",
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemInt6",
+    "label": "餐具强度",
+    "type": "range",
+    "min": 0,
+    "max": 1,
+    "step": 0.01,
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemGroup7",
+    "label": "家具",
+    "type": "group",
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemInt7",
+    "label": "家具强度",
+    "type": "range",
+    "min": 0,
+    "max": 1,
+    "step": 0.01,
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemGroup8",
+    "label": "电子设备",
+    "type": "group",
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemInt8",
+    "label": "电子设备强度",
+    "type": "range",
+    "min": 0,
+    "max": 1,
+    "step": 0.01,
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemGroup9",
+    "label": "家电",
+    "type": "group",
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemInt9",
+    "label": "家电强度",
+    "type": "range",
+    "min": 0,
+    "max": 1,
+    "step": 0.01,
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemGroup10",
+    "label": "配饰",
+    "type": "group",
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemInt10",
+    "label": "配饰强度",
+    "type": "range",
+    "min": 0,
+    "max": 1,
+    "step": 0.01,
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemGroup11",
+    "label": "其他物品",
+    "type": "group",
+    "group": "semantic"
+  },
+  {
+    "key": "nrSemInt11",
+    "label": "其他物品强度",
+    "type": "range",
+    "min": 0,
+    "max": 1,
+    "step": 0.01,
+    "group": "semantic"
+  }
 ];
 
 // 一份配置里的功能设置。core 读的就是这些键。
@@ -364,6 +700,9 @@ function onHostMessage(raw) {
 		case 'settings':
 			loadModel(msg.payload || {});
 			break;
+        case 'nrParameterEdited':
+            acknowledgeNrEdit(msg.payload || {});
+            break;
 		case 'status':
 			setStatus(msg.payload);
 			break;
@@ -674,7 +1013,8 @@ function renderHotkeyHints() {
     const hint = document.getElementById('hintInjectKey');
     if (hint) hint.textContent = registeredInjectKey === null ? tr('等待快捷键注册…') : registeredInjectKey || tr('快捷键不可用');
     const panel = document.getElementById('panelHotkeyHint');
-    if (panel) panel.textContent = tr(`只读显示 —— 请在游戏内 ImGui 面板调参（${draft.hotkeys.toggleOverlay} 打开）。`);
+    if (panel && document.getElementById('nrExternalEdit').checked) panel.textContent = tr('修改实时保存；游戏运行时立即生效，处理分辨率与真叠层在松手后应用。');
+    else if (panel) panel.textContent = tr(`只读显示 —— 请在游戏内 ImGui 面板调参（${draft.hotkeys.toggleOverlay} 打开）。`);
     const master = document.getElementById('masterHotkeyHint');
     if (master) master.textContent = tr(`游戏内总开关快捷键：${draft.hotkeys.toggleAll}。控制本工具的全部效果，保留注入。开关会保存到本配置；游戏运行时修改会立即生效。`);
 }
@@ -697,15 +1037,16 @@ for (const [id, pairs] of Object.entries(OPTIONS)) {
 	if (el) fillSelect(el, pairs);
 }
 
-// 参数面板已删（用户拍板，见 index.html 里的注释）：游戏内浮层是唯一调参入口。
-// 这个函数留着空转 —— #nrParams 不存在时直接返回，别让加载时 null 引用。
+// Optional launcher editor; core remains the owner of live NR settings.
 function buildNrParams() {
-	const root = document.getElementById('nrParams');
+	const container = document.getElementById('nrParams');
+    const root = container;
 	if (!root) return;
 	root.innerHTML = '';
 	for (const p of NR_PARAMS) {
 		const row = document.createElement('div');
 		row.className = 'row';
+        row.dataset.nrEditor = '1';
 
 		const label = document.createElement('label');
 		label.className = 'row-label';
@@ -713,7 +1054,7 @@ function buildNrParams() {
 		label.setAttribute('for', p.key);
 		row.appendChild(label);
 
-		if (p.type === 'switch') {
+		if (p.type === 'switch' || p.type === 'group') {
 			const wrap = document.createElement('label');
 			wrap.className = 'switch';
 			wrap.innerHTML =
@@ -743,7 +1084,7 @@ function buildNrParams() {
 			}
 			row.appendChild(field);
 		}
-		root.appendChild(row);
+		(p.group === 'semantic' ? document.getElementById('nrSemanticParams') : root).appendChild(row);
 
 		// 说明单独一行，不塞进 title 属性 —— 悬停提示在这种"我该动哪个"的场景里
 		// 等于没有：玩家得先猜到该把鼠标放上去。
@@ -1236,10 +1577,12 @@ function renderProfileList() {
 function renderAll() {
 	const profile = activeProfile();
 	const settings = resolvedSettings(profile);
+    renderNrEditor();
 
 	for (const el of document.querySelectorAll('[data-key]')) {
 		const key = el.dataset.key;
-		if (!(key in settings)) continue;
+		if (key.startsWith('nrSemGroup')) { el.checked = Boolean(settings.nrSemOn & (1 << Number(key.slice(10)))); continue; }
+        if (!(key in settings)) continue;
 		if (el.type === 'radio') {
             el.checked = el.value === String(settings[key]);
         } else if (el.type === 'checkbox') {
@@ -1296,6 +1639,7 @@ document.addEventListener('input', e => {
 	const el = e.target;
 	const key = el.dataset && el.dataset.key;
 	if (!key) return;
+    if (NR_PARAMS.some(p => p.key === key)) { editLauncherNr(el); return; }
 	// **输入写进哪份配置，必须和 liveApplyNow 写的是同一份。**
 	// 两个各找各的（input→activeProfile / liveApply→matchProfileByTarget）时，
 	// 拖滑块把值写进 A 配置，推给 core 的却是 B 配置的旧值 —— 38 次 ReloadSettings
@@ -1378,6 +1722,7 @@ function scheduleLiveApply(key) {
 // 贵的那类只在松手时推一次。range 的 change 事件正好是松手才触发。
 document.addEventListener('change', e => {
 	const key = e.target && e.target.dataset && e.target.dataset.key;
+	if (key && NR_PARAMS.some(p => p.key === key)) { flushLauncherNr(); return; }
 	if (key && LIVE_EXPENSIVE_KEYS.has(key)) liveApplyNow();
 	// 总开关是特例：core 只在**第一次读设置**时取 masterEnabled（core.cpp 的
 	// diagnosticsRead 那段），之后以 Del / 命令为准 —— 所以写文件 +
@@ -2092,6 +2437,7 @@ function syncNrParamsFromCore(s) {
 	let changed = false;
 	for (const [srcKey, dstKey] of Object.entries(NR_PARAM_SYNC_KEYS)) {
 		if (s[srcKey] === undefined) continue;
+        if (nrPending.has(profileFileName(profile) + ':' + dstKey)) continue;
 		const coreVal = s[srcKey];
 		const local = resolvedSettings(profile)[dstKey];
 		const same = typeof coreVal === 'boolean'
@@ -2112,7 +2458,7 @@ function syncNrParamsFromCore(s) {
 	if (persisted) {
 		persisted.settings = persisted.settings || {};
 		for (const key of Object.values(NR_PARAM_SYNC_KEYS)) {
-			if (key in profile.settings) persisted.settings[key] = profile.settings[key];
+			if (key in profile.settings && !nrPending.has(profileFileName(profile) + ':' + key)) persisted.settings[key] = profile.settings[key];
 		}
 		host.post('applySettings', saved, { noReload: 1 });
 	}
@@ -2425,7 +2771,7 @@ document.getElementById('openNgxDirBtn').addEventListener('click', () => {
 /* ---------------- 启动 ---------------- */
 
 // 版本号写在一处，别在 HTML 里硬编码（之前 HTML 里那个 v0.4.0 早就过期了）
-const APP_VERSION = 'v0.3';
+const APP_VERSION = 'v0.4';
 window.addEventListener('dxl-language-changed', () => { renderLog(); renderHotkeyHints(); renderAdvice(lastStatus); });
 document.getElementById('brandVersion').textContent = APP_VERSION;
 document.getElementById('projectLink').addEventListener('click', event => {
@@ -2453,3 +2799,59 @@ document.getElementById('downloadSemantic').addEventListener('click', () => host
 document.getElementById('openSemanticFolder').addEventListener('click', () => host.post('openSemanticFolder'));
 document.getElementById('refreshExtensions').addEventListener('click', () => host.post('getExtensions'));
 host.post('uiReady', null);
+
+// Session-only opt-in; never persisted as a game parameter.
+
+function renderNrEditor() {
+    const toggle = document.getElementById('nrExternalEdit');
+    toggle.disabled = activeProfile().id === 'default';
+    if (toggle.disabled) toggle.checked = false;
+    if (nrEditorProfile !== activeProfile().id) { toggle.checked = false; nrEditorProfile = activeProfile().id; }
+    document.getElementById('nrParams').hidden = !toggle.checked;
+    document.getElementById('nrSemanticDetails').hidden = !toggle.checked;
+    document.getElementById('nrRoGrid').hidden = toggle.checked;
+    document.getElementById('nrParams').disabled = !toggle.checked;
+    document.getElementById('nrSemanticParams').disabled = !toggle.checked;
+}
+document.getElementById('nrExternalEdit').addEventListener('change', () => { renderNrEditor(); renderHotkeyHints(); });
+function editLauncherNr(el) {
+    if (!document.getElementById('nrExternalEdit').checked) return;
+    const profile = activeProfile();
+    if (profile.id === 'default') return;
+    let key = el.dataset.key;
+    let value = el.type === 'checkbox' ? el.checked : Number(el.value);
+    if (key.startsWith('nrSemGroup')) {
+        const bit = 1 << Number(key.slice(10)); key = 'nrSemOn';
+        const mask = Number(resolvedSettings(profile).nrSemOn) & 4095;
+        value = el.checked ? mask | bit : mask & ~bit;
+    }
+    profile.settings[key] = value;
+    const out = document.getElementById(key + 'Out');
+    if (out) out.textContent = formatValue(key, value);
+    nrPending.set(profileFileName(profile) + ':' + key, {file: profileFileName(profile), key, value, id: profile.id, sent: false});
+    if (nrEditTimer) clearTimeout(nrEditTimer);
+    if (!LIVE_EXPENSIVE_KEYS.has(key)) nrEditTimer = setTimeout(flushLauncherNr, 120);
+}
+function flushLauncherNr() {
+    if (nrEditTimer) clearTimeout(nrEditTimer); nrEditTimer = 0;
+    for (const item of nrPending.values()) if (!item.sent) {
+        item.sent = true;
+        host.post('editNrParameter', null, {file:item.file, key:item.key, value:Number(item.value)});
+    }
+}
+function acknowledgeNrEdit(reply) {
+    const token = reply.file + ':' + reply.key;
+    const item = nrPending.get(token);
+    if (!item || Number(item.value) !== Number(reply.value)) return;
+    nrPending.delete(token);
+    if (!reply.ok) {
+        const tr = window.I18N ? I18N.t : x => x;
+        document.getElementById('panelHotkeyHint').textContent = tr('NR 参数未保存，请使用更新后的核心重启游戏后重试。');
+        return;
+    }
+    for (const model of [draft, saved]) {
+        const profile = model.profiles.find(p => p.id === item.id);
+        if (profile) profile.settings[reply.key] = item.value;
+    }
+    host.post('applySettings', saved, {noReload:1});
+}

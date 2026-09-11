@@ -1,4 +1,4 @@
-﻿#include "../common/DataPaths.h"
+#include "../common/DataPaths.h"
 #include "InjectionCoordination.h"
 // DXL UI 宿主。
 //
@@ -19,6 +19,8 @@
 #include <vector>
 #include <memory>
 #include <cstring>
+#include <regex>
+#include "../common/NrParameterEdit.h"
 #include <filesystem>
 #include <mutex>
 #include <algorithm>
@@ -1342,7 +1344,56 @@ void HandleUiMessage(std::string_view json) {
 			g_elevationStartupNote.clear();
 		}
 		SendStatusToUi();
-	} else if (type == "openProjectPage") {
+	} else if (type == "editNrParameter") {
+        const auto key = ExtractStringField(json, "key");
+        const auto file = ExtractStringField(json, "file");
+        const double value = ExtractNumberField(json, "value", -1);
+        uint32_t packed = 0;
+        bool ok = IsSafeProfileFileName(file) && file != "default.json" &&
+            DXL::EncodeNrEdit(key, value, packed);
+        bool live = false;
+        if (ok) {
+            const auto expected = Utf8ToWide(file.substr(0, file.size()-5));
+            for (const auto& target : g_targets) {
+                if (_wcsicmp(target.name.c_str(), expected.c_str()) != 0) continue;
+                HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, target.pid);
+                DWORD code = 0;
+                const bool alive = process && GetExitCodeProcess(process, &code) && code == STILL_ACTIVE;
+                if (process) CloseHandle(process);
+                if (!alive) continue;
+                live = true;
+                // The core serializes this edit with in-game edits and owns the
+                // durable params layer. Never rewrite that layer underneath it.
+                ok = DXL::SendCommand(target.pid, DXL::Ipc::CommandId::EditNrParameter, packed) && ok;
+            }
+            if (!live) {
+                const auto path = ProfilesDir() / (expected + L".params.json");
+                auto text = ReadFileUtf8(path);
+                if (text.empty() && !std::filesystem::exists(path)) text = "{}";
+                const auto open = text.find('{'), close = text.find_last_of('}');
+                if (open == std::string::npos || close == std::string::npos) ok = false;
+                else {
+                    const std::regex item("\\\"" + key + "\\\"\\s*:\\s*[^,}\\r\\n]+");
+                    const auto literal = DXL::NrEditSpecs[packed >> 24].boolean ? std::string(value != 0 ? "true" : "false") : std::to_string(value);
+                    const auto entry = "\"" + key + "\": " + literal;
+                    if (std::regex_search(text, item)) text = std::regex_replace(text, item, entry);
+                    else {
+                        const bool empty = text.find_first_not_of(" \t\r\n", open+1) == close;
+                        text.insert(open+1, "\n" + entry + (empty ? "" : ","));
+                    }
+                    const auto temporary = path.wstring() + L".tmp";
+                    ok = WriteFileUtf8(temporary, text) && MoveFileExW(temporary.c_str(), path.c_str(),
+                        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+                }
+            }
+        }
+        PostToUi("{\"type\":\"nrParameterEdited\",\"payload\":{\"file\":" + JsonQuoted(Utf8ToWide(file)) +
+            ",\"key\":" + JsonQuoted(Utf8ToWide(key)) + ",\"value\":" + std::to_string(value) +
+            ",\"ok\":" + (ok ? "true" : "false") + "}}");
+        if (!ok) SendLog(g_uiLang.load() == 2 ? L"NR parameter was not saved. Restart the game with the updated core and try again."
+            : L"NR 参数未保存，请使用更新后的核心重启游戏后重试。");
+        if (live) SendStatusToUi();
+} else if (type == "openProjectPage") {
         ShellExecuteW(g_window, L"open", L"https://github.com/LCPD15/DXL", nullptr, nullptr, SW_SHOWNORMAL);
     } else if (type == "openReFrameworkPage") {
         ShellExecuteW(g_window, L"open", L"https://github.com/praydog/REFramework-nightly/releases", nullptr, nullptr, SW_SHOWNORMAL);

@@ -24,7 +24,7 @@ if ($SettingsOnly -or (!$SmokeOnly -and !$NgxOnly -and !$BridgeOnly)) {
     if ($SettingsOnly) { return }
 }
 if (!$SmokeOnly -and !$NgxOnly -and !$BridgeOnly) {
-foreach ($name in @('presentation_owner','direct_queue_candidate','nr_route','fg_swapchain','chain_child_policy')) {
+foreach ($name in @('presentation_owner','presentation_focus','direct_queue_candidate','nr_route','fg_swapchain','chain_child_policy')) {
     Build-Test $name
     & "$OutDir/$name.exe"
     if ($LASTEXITCODE) { throw "$name failed" }

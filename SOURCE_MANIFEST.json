@@ -1,5 +1,5 @@
 {
-  "version": "0.3",
+  "version": "0.4",
   "git_history_included": false,
   "runtime_or_model_binaries_included": false,
   "files": [
@@ -9,7 +9,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "fb5d0b0aed5aeca44df5e2849016835f91dfeba5f17be47eb4d664f82e9e0b14"
+      "sha256": "30d8732557181dbaf34b10e9e173e70a6d520f333b782cf65c252c5836c4e92c"
     },
     {
       "path": "DEPENDENCIES.md",
@@ -21,7 +21,7 @@
     },
     {
       "path": "docs/DXL-Guide-EN.md",
-      "sha256": "7e68cdc9649b84b9a87f9eb0c203549c2ee89017bbcaab43d86548eb5222de58"
+      "sha256": "ab4a20ddf7857dd7bba480d73c724d14e1706e40761977beff1cd3640ab5b4c4"
     },
     {
       "path": "docs/DXL-Guide-ZH.docx",
@@ -29,7 +29,7 @@
     },
     {
       "path": "docs/DXL-Guide-ZH.md",
-      "sha256": "cdc4bfbd2486d981bbb66813a483c5d7af6d5b876e66d75a922c841668a05521"
+      "sha256": "ca33063c688ac5aa4cbe95f4611025f74c56a585941902d8e936e705c6c352fa"
     },
     {
       "path": "docs/images/dxl-interface.png",
@@ -37,15 +37,15 @@
     },
     {
       "path": "docs/README_EN.md",
-      "sha256": "acdc4468e76f6d1ed57f5065c705e5fb3fcfa814c2cd80484afabaf6bf992b78"
+      "sha256": "8ac2faada75e528521be118f96cc4729f90ec9455262e22cc73372fde69d607e"
     },
     {
       "path": "docs/README_ZH.md",
-      "sha256": "972e2752ce85b3e9af169a2b5896cf58eeddf31d1c20b3b6aa06ba1db0d0bf2d"
+      "sha256": "e97a73a2fa45de4c63b030010385d21a510d28cd4153929f11fb89d9a52630cc"
     },
     {
       "path": "docs/UPDATES.md",
-      "sha256": "e2dcf89c9508206b459bc951632722656a9b2f36f1705bec5c292337e70eed03"
+      "sha256": "ef2ea964ca6dcd725eb0889ea1b5885653ca7203cc2ed3520ba48fcd385eaeb6"
     },
     {
       "path": "icon/icon.png",
@@ -77,11 +77,11 @@
     },
     {
       "path": "README.md",
-      "sha256": "674c77e62a1f3ba75a094b2532e151367c10d77db3d9741e6be53b33fa658d91"
+      "sha256": "dcc54984dd9263aaa1e327f47b1b8387f13410542cef57540cc60cd7cb0900cf"
     },
     {
       "path": "README_ZH.md",
-      "sha256": "c5e6022eb0202f489202318a84e4c19bb8b2c81bf03417fd7b074e203e7277dc"
+      "sha256": "ab52335fd4319f18bd6332ea9d2f8215b5af4935da320f6dfaf2e5331ebda24c"
     },
     {
       "path": "scripts/audit_source.py",
@@ -101,7 +101,7 @@
     },
     {
       "path": "scripts/build_dxl.ps1",
-      "sha256": "c5ddfca49049104e37613106204387bffd64b58483b1f6d17692882af4d45d55"
+      "sha256": "04d8b698c9d8f6922005b40864c4ebbc2af07177ab9ec9aa21ea67e5d9ac8a62"
     },
     {
       "path": "scripts/build_launcher.ps1",
@@ -121,7 +121,7 @@
     },
     {
       "path": "scripts/export_source.py",
-      "sha256": "158c8a024e954b3ce084b743506dbaf33060b23ce2e04804efaf0f3687b1b972"
+      "sha256": "d55c6fa48c0a24a8e9409e1fcd14c414c2dae0804b04694b2adbac33860e528b"
     },
     {
       "path": "scripts/fetch-deps.ps1",
@@ -137,7 +137,7 @@
     },
     {
       "path": "scripts/paths.ps1",
-      "sha256": "4ade6154c87cfd09616ccedf750dc9c21af4d52b83dd025f6b5d6ff996181e47"
+      "sha256": "8950535258bdfc4774331eae2ec62ec6c976111dc6b4a337600bc0eeb6b0f069"
     },
     {
       "path": "scripts/release_dxl.ps1",
@@ -149,7 +149,7 @@
     },
     {
       "path": "scripts/test-dxl-launcher.js",
-      "sha256": "e0dbf9263af7838e2cf80e1b566d4a04dde8ff8bab3bd5b189d6852da9c44d78"
+      "sha256": "28aa3bc369e5f44014e21ea55163a27682425c1e6e39f1e93cbe60c74172cd3e"
     },
     {
       "path": "scripts/test-game-compatibility-browser.js",
@@ -185,7 +185,7 @@
     },
     {
       "path": "scripts/test_core.ps1",
-      "sha256": "71fdce2789348ea4483e61247734237b2615d34b2d13abfbff7f9d5921e1c1c9"
+      "sha256": "663edc6a47e82cad2238e4f7281eeb8280387eb8da684fa6f56f667775a5bbc8"
     },
     {
       "path": "scripts/test_d3d11_fence_probe.ps1",
@@ -233,7 +233,7 @@
     },
     {
       "path": "SOURCE_CODE.md",
-      "sha256": "1dca85fed2d77fdcecaf4c3ab502e980d400802df6982bfe11f799116799b0ab"
+      "sha256": "756163839f45e58b6130347307f422282c1ef24980be4bd1cb99eb47b2e8aecf"
     },
     {
       "path": "src/common/DataPaths.h",
@@ -241,15 +241,19 @@
     },
     {
       "path": "src/common/IpcClient.h",
-      "sha256": "484fa24161d935aa7c252760f216dd4f79c8a26d05acd3a023514d08619e3bd0"
+      "sha256": "5400da593a1920f26bce3a73ef73d395951030531d6fedb76fdec3739397e56b"
     },
     {
       "path": "src/common/IpcProtocol.h",
-      "sha256": "e3389b56d122d712beaef8ce5d15ba1da8c1258bde55a4ea20ee5ab26fe55b7a"
+      "sha256": "4f4d599c451d1a54a0208329171be7cd0b8da469ba2aae6df8dea9820e7910b2"
     },
     {
       "path": "src/common/Log.h",
       "sha256": "2025837c39b2e9ad1bf06ef2eb083afd306074f7e8fd1acb0a68292965b01f75"
+    },
+    {
+      "path": "src/common/NrParameterEdit.h",
+      "sha256": "0b2b7fb644c4e9d59d41d32c4bd1f838a198984b52fcf8f69d9dfca8b2bc5418"
     },
     {
       "path": "src/common/SemanticExtension.h",
@@ -293,7 +297,7 @@
     },
     {
       "path": "src/core/core.cpp",
-      "sha256": "e359e253292effe92941bf59c070891bced6f87b6e6046f369b63d15532d8ede"
+      "sha256": "b4c4a2c9d1dd952836b6b81c004e32519bd0e0405a5e0e24085035e6764e1fd2"
     },
     {
       "path": "src/core/D3D12Validation.h",
@@ -305,7 +309,7 @@
     },
     {
       "path": "src/core/DepthTracker.cpp",
-      "sha256": "423e19e8b8d228bfc05c60baf733d9567c9412432fc5100427de9d337c2d79d6"
+      "sha256": "80be82db32384bf58eef1a1728504404250947a23a5bc5faa6468ce42944baf0"
     },
     {
       "path": "src/core/DepthTracker.h",
@@ -429,7 +433,7 @@
     },
     {
       "path": "src/core/NgxSession.cpp",
-      "sha256": "3fc12a13ebb6063712c5699821dd00d83113a867cda8616bd7ad15e16a528d85"
+      "sha256": "05eb004b72aaea761914f6c3d9346db44d06c909e57056f61df713b820f7f41b"
     },
     {
       "path": "src/core/NgxSession.h",
@@ -492,6 +496,10 @@
       "sha256": "d5817dbc7371f37df39d721979d85288a0c4d7752d54c5d3854e8e594efa7ef3"
     },
     {
+      "path": "src/core/PresentationFocus.h",
+      "sha256": "6369d277f496f1ff9bba84266ffce10c0d8d721f1f8a1e918d6d40630e5d128c"
+    },
+    {
       "path": "src/core/PresentationOwner.h",
       "sha256": "3c23baa313899d42b960c2ef79e093be4bdfa928245e1e110fa92e5688660afc"
     },
@@ -500,8 +508,12 @@
       "sha256": "b90e082204b99702cad5c54caac0bdc934a53974a3520639eca8845c06f62325"
     },
     {
+      "path": "src/core/PresentWriterTracker.h",
+      "sha256": "8c883111a84eb9685da2f770902bf9369e99f4ddbb30e1774b35f2c18e7f00a3"
+    },
+    {
       "path": "src/core/ReUiBackend.cpp",
-      "sha256": "d83c96ae97468c6c78d25685f3f2352b6f13c0c4871509ef85207d3e9ba31401"
+      "sha256": "d036cc79f5f30e87db2934e3bfd8e2f8b0a695d85f0d211ae0d423a2186ddde9"
     },
     {
       "path": "src/core/ReUiBackend.h",
@@ -673,7 +685,7 @@
     },
     {
       "path": "src/ui/app.rc",
-      "sha256": "dc94214d18662ad22099c77e1a6c72886f6a54933bb6dc3bc5c170d13793d5cb"
+      "sha256": "9a758a4714504cf6ac8f703d9de5295dd8079c79cd714dfdc7a1dc4fd00f4394"
     },
     {
       "path": "src/ui/ExeIcon.h",
@@ -717,7 +729,7 @@
     },
     {
       "path": "src/ui/main.cpp",
-      "sha256": "383c4bcf5481536447bcb5b6228030a63bc602d51c596564d4f55039672fad23"
+      "sha256": "e5224a499ad890baea0a5283bb5913daf95eb5fa52d992b2d93cce94976bfada"
     },
     {
       "path": "src/ui/StartupReport.h",
@@ -729,7 +741,7 @@
     },
     {
       "path": "src/ui/UpdateClient.h",
-      "sha256": "db00a2dce2582b8c48224deafc81d596f3d0b69fa394edfe11b411d5852efd44"
+      "sha256": "003ad4d9b7a027eecbaaf68f21cb3b4baab2b2a01cd632bae604c8ce047814aa"
     },
     {
       "path": "src/ui/web/app-icon.png",
@@ -741,19 +753,19 @@
     },
     {
       "path": "src/ui/web/app.js",
-      "sha256": "5b186c9bf95686293bb6d1c66b812d66981ecc854682b6b9ecbbc2d4cdc14baf"
+      "sha256": "a6a208831cce646ea11f85518f4177e27cd99f61d50eb522452d2fafd950e852"
     },
     {
       "path": "src/ui/web/i18n.js",
-      "sha256": "4640bf4b9bd5486e17d68db4ba4bad67bed4803b8d02ccf94b1f9c202e1df9e3"
+      "sha256": "0438c7572b44aa489296b3a2345b59a3841ab6c7bb7536875ae58b3d864184ae"
     },
     {
       "path": "src/ui/web/index.html",
-      "sha256": "75400a47800f7ea8e5479d759b0aac9e2770613c3afbd886a516a69da98899dc"
+      "sha256": "c6a8027f8be12382971d4940acaec83ad67a25ffa2c2185e72e4fc699b7dec1b"
     },
     {
       "path": "src/ui/web/style.css",
-      "sha256": "63b7f6d0ca4f140f4cc1273be3f04e6890c37c4a9fb9e67ccfd167bc6a48f61f"
+      "sha256": "dcf39aa34c27e9b35906a88884cd1d4144778e3be98379f1bf32c0fa3d4a7aab"
     },
     {
       "path": "src/ui/web/updates.js",
@@ -796,6 +808,10 @@
       "sha256": "8134381f8ee50e85ffcbe7443b399336186122ad59a03a75646ed6cdab1e79df"
     },
     {
+      "path": "tests/fg_presence_stub.cpp",
+      "sha256": "bfb2b898832fd963c188b3f3844b871102b45ef26c8f5edfe79366bf2c0d43e7"
+    },
+    {
       "path": "tests/fg_swapchain.cpp",
       "sha256": "aae0733735678863d415439ca351816e73747ab3daa8f52b935a20281f070257"
     },
@@ -820,6 +836,10 @@
       "sha256": "f22c2fd03c970956520f015488df8aceecfea26553a1ad9d4077eb4cec3ddfc3"
     },
     {
+      "path": "tests/late_ui_target.cpp",
+      "sha256": "969cb07e9559f27a9d10fc3c0fae4d4891e76fcb72a4e8dcc6d15dd000c41c94"
+    },
+    {
       "path": "tests/legacy_d3d9_target.cpp",
       "sha256": "cec0fdb0f4524b771e03a8c846c52fcb2477e5437b0d0186829c24d0f0f6c7a3"
     },
@@ -841,11 +861,11 @@
     },
     {
       "path": "tests/legacy_ui_injection.ps1",
-      "sha256": "d9b2463e8b7ce4ab117f00bdcb87fb82324e64819b513dbc8f926b1cbb39a1c3"
+      "sha256": "71ddfeb0e1a092e6b81a6c7f7176807bcfbaa02ce4e4139f56c82d50fca5723b"
     },
     {
       "path": "tests/legacy_ui_target.cpp",
-      "sha256": "7f9879375f36867f23a3a551fbaf53bc7816f5310d2049558eed6b05d2b49643"
+      "sha256": "a880124674f785ea416c02908fc9887fe831b2d0ec578df7494a4bf2e0069878"
     },
     {
       "path": "tests/ngx_fixture.cpp",
@@ -894,6 +914,10 @@
     {
       "path": "tests/present_hook_chain.cpp",
       "sha256": "e9c04c46fdb9277a1ff758d81497cfe831ecff5cca2e3fb097eab64f64c7fd49"
+    },
+    {
+      "path": "tests/presentation_focus.cpp",
+      "sha256": "f43b6af1027f19890e2b3396fd1fe01f84c0be1940e80d08ab2924ebfb41c921"
     },
     {
       "path": "tests/presentation_owner.cpp",
@@ -953,11 +977,11 @@
     },
     {
       "path": "tests/test-imgui12.cpp",
-      "sha256": "e59da5239697003ddba2998b26e8bd7cf7caa9b2a606e43580874be97777a4f7"
+      "sha256": "c164c41bec54be719a483be51bda060a0bfc9edd5d6e04d40648651c341e0de2"
     },
     {
       "path": "tests/test-launcher-controls.cpp",
-      "sha256": "8a89cedc668895a69a2e209b8b89a719c4bb6134675b7321835995f5f83d0ce9"
+      "sha256": "72429b3dbcf3ab611585a73a8ba32981ab410ec0e62a4bc3ab77041ae2cb2b05"
     },
     {
       "path": "tests/test-launcher-preferences.cpp",

@@ -1,6 +1,8 @@
 #include "DepthTracker.h"
 
 #include "CommandListTracker.h"
+#include "PresentWriterTracker.h"
+#include <intrin.h>
 #include "HookTeardown.h"
 
 #include "../common/Log.h"
@@ -287,6 +289,7 @@ struct DepthTrackerHooks {
 		ID3D12GraphicsCommandList* commandList,
 		UINT barrierCount,
 		const D3D12_RESOURCE_BARRIER* barriers) {
+		PresentWriterTracker::Get().Barriers(commandList, barrierCount, barriers, _ReturnAddress());
 		if (barriers) {
 			DepthTracker& tracker = GetDepthTracker();
 			const uint32_t count = tracker._count.load(std::memory_order_acquire);

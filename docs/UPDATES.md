@@ -26,8 +26,8 @@ Game profiles, preferences and unrelated installation-folder files are preserved
 
 ## Release packaging
 
-Publish stable tags such as `v0.3` with a `DXL-v0.3-win64.zip` asset. The ZIP must
-contain the `DXL-v0.3/` folder and the manifest produced by `release_dxl.ps1`.
+Publish stable tags such as `v0.4` with a `DXL-v0.4-win64.zip` asset. The ZIP must
+contain the `DXL-v0.4/` folder and the manifest produced by `release_dxl.ps1`.
 The updater verifies GitHub's asset SHA256 digest, package manifest hashes and
 the executable's version. Pre-releases, source/model archives and older/equal
 versions are not installation candidates. Keep the updater executable and scripts

@@ -1,3 +1,15 @@
+# 0.4
+
+## 中文
+- 修复游戏内浮层兼容性，解决部分游戏无法呼出浮层的问题。
+- 新增工具内 NR 调参面板，作为浮层无法使用时的应急方案。
+- 已验证：Ryujinx 模拟器、刺客信条系列、FF7 Rebirth（FF7RB）。
+
+## English
+- Improved in-game overlay compatibility, fixing cases where the overlay could not be opened.
+- Added an NR settings panel in the launcher as a fallback when the in-game overlay is unavailable.
+- Verified with Ryujinx, the Assassin’s Creed series, and Final Fantasy VII Rebirth (FF7RB).
+
 # 0.3
 
 - 在 ZenlessZoneZero.exe 的配置页游戏名称右侧显示「绝区零DX12启动参数：-use-d3d12」，支持中英双语。
