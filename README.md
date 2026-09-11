@@ -21,7 +21,8 @@ These effect and performance examples are from the previous mod and show its old
 
 ![Previous mod: native motion vectors combined with frame generation](https://github.com/user-attachments/assets/459a24ee-18bd-4652-a0af-f277ebe79c58)
 
-![DXL configuration example](docs/images/dxl-interface.png)
+![Uploading image.png…]()
+
 
 ## Install and start a game
 
