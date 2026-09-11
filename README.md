@@ -8,6 +8,8 @@ DXL (DLSS eXtended Loader) expands on my previous RE DLSS5 Load Mod. It aims to 
 
 [Download the complete package](https://github.com/LCPD15/DXL/releases/latest) · [English online guide](docs/DXL-Guide-EN.md)
 
+<img width="1672" height="941" alt="image" src="https://github.com/user-attachments/assets/bcc09cc3-f160-464c-81b0-4dbf9f1f0d3c" />
+
 ## Features
 
 - **Native motion vectors** — Uses the game's own DLSS motion data where supported, helping temporal processing follow the scene and reduce flicker.
