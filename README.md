@@ -1,6 +1,6 @@
-# DXL — DLSS eXtended Loader
+﻿# DXL — DLSS eXtended Loader
 
-**English** | [简体中文](README_ZH.md) · **Version 0.1**
+**English** | [简体中文](README_ZH.md) · **Version 0.2**
 
 DXL (DLSS eXtended Loader) expands on my previous RE DLSS5 Load Mod. It aims to make DLSS NR as easy as possible to enable across games. In supported games, it can use native motion vectors and work with frame generation for higher-quality results. Compatibility varies by game.
 
@@ -69,3 +69,5 @@ Strength ranges from 0 to 1. Mask feather defaults to 8 to soften edges. Recogni
 ## License
 
 DXL is licensed under [AGPL-3.0-only](LICENSE). Copyright (C) 2026 LCPD15. Third-party components retain their own licenses. [Corresponding source](SOURCE_CODE.md).
+
+[Automatic updates](docs/UPDATES.md): checks in the background at startup; install and restart after downloading, or keep the package for later.

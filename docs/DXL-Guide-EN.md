@@ -1,6 +1,6 @@
-# DXL Quick Start Guide
+﻿# DXL Quick Start Guide
 
-**English** | [简体中文](DXL-Guide-ZH.md) · **Version 0.1**
+**English** | [简体中文](DXL-Guide-ZH.md) · **Version 0.2**
 
 DXL (DLSS eXtended Loader) expands on my previous RE DLSS5 Load Mod. It aims to make DLSS NR as easy as possible to enable across games. In supported games, it can use native motion vectors and work with frame generation for higher-quality results. Compatibility varies by game.
 

@@ -34,6 +34,13 @@ Invoke-BuildTool 'cl.exe' ($flags + @('/I', (Join-Path $wv2 'include'),
 Invoke-BuildTool 'cl.exe' ($flags + @(('/Fo' + (Join-Path $objectDir 'inject.obj')),
     ('/Fe' + (Join-Path $OutDir 'DXL-inject.exe')),
     (Join-Path $projectRoot 'src/inject/inject.cpp'),'/link','/SUBSYSTEM:CONSOLE','user32.lib','psapi.lib','shell32.lib','ole32.lib'))
+Invoke-BuildTool 'cl.exe' ($flags + @(('/Fo' + (Join-Path $objectDir 'update.obj')),
+    ('/Fe' + (Join-Path $OutDir 'DXL-update.exe')),
+    (Join-Path $projectRoot 'src/updater/main.cpp'),'/link','/SUBSYSTEM:WINDOWS','user32.lib','shell32.lib'))
+New-Item -ItemType Directory -Force -Path (Join-Path $OutDir 'updater') | Out-Null
+foreach ($name in @('Update.ps1','UpdateEngine.psm1')) {
+    Copy-Item -LiteralPath (Join-Path $projectRoot ('src/updater/'+$name)) -Destination (Join-Path $OutDir ('updater/'+$name)) -Force
+}
 
 $shellNames = @('d3d12','d3d11','xinput1_4','dxgi')
 for ($i = 0; $i -lt $shellNames.Count; ++$i) {
@@ -71,7 +78,7 @@ if ($Test) {
     Invoke-BuildTool 'cl.exe' ($flags + @(('/Fo' + (Join-Path $objectDir 'game_main_exe.obj')),
         ('/Fe' + $mainExeTest),(Join-Path $projectRoot 'tests/game_main_exe.cpp'),'/link','shell32.lib','ole32.lib','advapi32.lib'))
     Invoke-BuildTool $mainExeTest @((Join-Path $objectDir 'game-main-exe-fixtures'))
-    foreach ($testScript in @('test-dxl-launcher.js','test-status-render.js','test-ui-layout.js')) {
+    foreach ($testScript in @('test-dxl-launcher.js','test-status-render.js','test-ui-layout.js','test-updates.js')) {
         Invoke-BuildTool 'node.exe' @((Join-Path $PSScriptRoot $testScript))
     }
 }

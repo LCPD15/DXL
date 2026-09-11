@@ -1141,3 +1141,6 @@ code {
 .timing-warning { color: #ef6b6b; font-size: 13px; line-height: 1.6; margin: 12px 0 8px; }
 
 .fg-threshold-row { margin-top: 18px; }
+/* Startup updates share the application's existing dialog colors and buttons. */
+.profile-delete-dialog.update-dialog { width: min(680px, 90vw); max-height: 85vh; }
+.update-dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 45vh; overflow: auto; font: inherit; line-height: 1.6; padding: 14px; border: 1px solid #8885; border-radius: 8px; }

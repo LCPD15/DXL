@@ -1,3 +1,11 @@
+﻿# 0.2
+
+- Automatic startup checks for GitHub releases and verified local update packages.
+- Release notes, background download, deferred installation and automatic restart.
+- Independent updater with SHA256 and manifest validation, rollback and expired archive cleanup.
+- 启动后台检查更新，显示更新说明，支持下载后立即安装或下次安装。
+- 独立更新程序校验文件、覆盖安装并自动重启；失败回滚，成功清理过期压缩包。
+
 # DXL 更新日志 / Changelog
 
 ## 0.1

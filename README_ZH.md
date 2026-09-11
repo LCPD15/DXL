@@ -1,6 +1,6 @@
-# DXL — DLSS eXtended Loader
+﻿# DXL — DLSS eXtended Loader
 
-[English](README.md) | **简体中文** · **版本 0.1**
+[English](README.md) | **简体中文** · **版本 0.2**
 
 DXL（DLSS eXtended Loader）基于我之前的 RE DLSS5 Load Mod 扩充，目的是尽可能方便地在各类游戏中启用 DLSS NR。对于支持的游戏，工具可获取原生运动矢量并与帧生成配合，提供更高质量的效果；具体兼容性取决于游戏。
 
@@ -69,3 +69,5 @@ Del：开关 NR  •  End：开关面板  •  Alt + F8：对当前游戏窗口�
 ## 开源许可
 
 DXL 采用 [AGPL-3.0-only](LICENSE)，版权所有 (C) 2026 LCPD15。第三方组件保留各自许可。[对应源码说明](SOURCE_CODE.md)。
+
+[自动更新说明](docs/UPDATES.md)：启动时后台检查；下载完成后可安装重启或留待下次安装。

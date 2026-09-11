@@ -17,7 +17,7 @@ PATTERNS = {
     "private key": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
     "GitHub credential": re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{50,})\b"),
 }
-TEXT = {".h", ".cpp", ".c", ".hlsl", ".js", ".html", ".css", ".ps1", ".cmd",
+TEXT = {".h", ".cpp", ".c", ".hlsl", ".js", ".html", ".css", ".ps1", ".psm1", ".cmd",
         ".py", ".md", ".txt", ".rc", ".asm", ".def", ".json"}
 
 def audit(root):

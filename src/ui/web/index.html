@@ -509,8 +509,18 @@
             <button class="btn btn-danger" id="confirmDeleteProfile">确认删除</button>
         </div>
     </dialog>
+    <dialog id="updateDialog" class="profile-delete-dialog update-dialog" aria-labelledby="updateTitle" data-i18n-skip>
+        <h2 id="updateTitle"></h2>
+        <p id="updateDescription" aria-live="polite"></p>
+        <pre id="updateNotes"></pre>
+        <div class="dialog-actions">
+            <button class="btn btn-ghost" id="updateLater" autofocus></button>
+            <button class="btn btn-primary" id="updateAccept"></button>
+        </div>
+    </dialog>
 	<script src="i18n.js"></script>
 	<script src="app.js"></script>
+    <script src="updates.js"></script>
 </body>
 
 </html>

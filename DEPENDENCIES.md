@@ -1,4 +1,4 @@
-# Dependencies and build inputs
+﻿# Dependencies and build inputs
 
 All downloaded SDKs, runtime files, weights and generated plans belong outside
 source, under DXL_WORKSPACE/dependencies/. Never commit them.
@@ -17,7 +17,7 @@ source, under DXL_WORKSPACE/dependencies/. Never commit them.
 | YOLO export tools | https://github.com/ultralytics/ultralytics | external Python environment | AGPL-3.0; https://www.ultralytics.com/license |
 | NR runtime | https://github.com/SAOG0721/Magpie/releases | dependencies/runtime/nvngx_dlssnr.dll | Community source reference only, NOT an NVIDIA authorization; no authorized download for the exact modified file has been verified |
 
-## Build DXL 0.1
+## Build DXL 0.2
 
 Install Visual Studio 2022 Build Tools with the C++ x64 tools and a Windows SDK.
 Use PowerShell from the source root. Keep DXL_WORKSPACE outside the checkout:
@@ -27,7 +27,7 @@ $env:DXL_WORKSPACE = 'D:\DXL-Workspace'
 ./scripts/fetch-deps.ps1
 # Prepare the runtime and model inputs described below, then:
 ./scripts/build_dxl.ps1 -Runtime Lean -Test
-./scripts/release_dxl.ps1 -SourceDir "$env:DXL_WORKSPACE/build/dxl-0.1" -OutDir 'D:\DXL-release/DXL-v0.1'
+./scripts/release_dxl.ps1 -SourceDir "$env:DXL_WORKSPACE/build/dxl-0.2" -OutDir 'D:\DXL-release/DXL-v0.2'
 ```
 
 The source includes FG compatibility and runtime route switching. No private

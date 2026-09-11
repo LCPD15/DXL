@@ -1,6 +1,6 @@
-# DXL 快速使用指南
+﻿# DXL 快速使用指南
 
-[English](DXL-Guide-EN.md) | **简体中文** · **版本 0.1**
+[English](DXL-Guide-EN.md) | **简体中文** · **版本 0.2**
 
 DXL（DLSS eXtended Loader）基于我之前的 RE DLSS5 Load Mod 扩充，目的是尽可能方便地在各类游戏中启用 DLSS NR。对于支持的游戏，工具可获取原生运动矢量并与帧生成配合，提供更高质量的效果；具体兼容性取决于游戏。
 

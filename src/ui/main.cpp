@@ -1,4 +1,4 @@
-#include "../common/DataPaths.h"
+﻿#include "../common/DataPaths.h"
 #include "InjectionCoordination.h"
 // DXL UI 宿主。
 //
@@ -23,6 +23,8 @@
 #include <mutex>
 #include <algorithm>
 #include <tlhelp32.h>
+#include <thread>
+#include <stdexcept>
 #include "WebView2.h"
 #include "GameSession.h"
 #include "StartupReport.h"
@@ -1323,9 +1325,15 @@ void SendExtensionsToUi() {
         ",\"folder\":" + JsonQuoted(DXL::SemanticExtensionFolder(ExeDir()).wstring()) + "}}");
 }
 
+#include "UpdateClient.h"
+
 void HandleUiMessage(std::string_view json) {
 	const std::string type = ExtractStringField(json, "type");
-	if (type == "uiReady") {
+	if (type == "checkUpdates") {
+        if (!g_updateChecked) { g_updateChecked=true; StartUpdateAction("check"); }
+    } else if (type == "downloadUpdate") { StartUpdateAction("download", ExtractStringField(json,"version"));
+    } else if (type == "installUpdate") { StartUpdateAction("install", ExtractStringField(json,"version"));
+    } else if (type == "uiReady") {
 		SendSettingsToUi();
 		SendLauncherPreferencesToUi();
         SendExtensionsToUi();
@@ -1705,6 +1713,12 @@ void SaveWindowState(HWND hwnd) noexcept {
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	switch (msg) {
+    case WM_APP_UPDATE_DONE: {
+        std::unique_ptr<std::string> response(reinterpret_cast<std::string*>(lParam));
+        g_updateBusy=false;
+        if (response) PostToUi(*response);
+        return 0;
+    }
     case WM_CLOSE:
         SaveWindowState(hwnd);
         DestroyWindow(hwnd);
