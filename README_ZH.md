@@ -8,6 +8,9 @@ DXL（DLSS eXtended Loader）基于我之前的 RE DLSS5 Load Mod 扩充，目�
 
 [下载完整包](https://github.com/LCPD15/DXL/releases/latest) · [中文版在线说明](docs/DXL-Guide-ZH.md)
 
+<img width="1672" height="941" alt="image" src="https://github.com/user-attachments/assets/bcc09cc3-f160-464c-81b0-4dbf9f1f0d3c" />
+
+
 ## 特征
 
 - **真实运动矢量**——利用支持游戏自身的 DLSS 运动数据，让时间处理跟随场景，减少闪烁。
