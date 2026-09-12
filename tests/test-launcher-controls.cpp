@@ -3,6 +3,7 @@
 #include "../src/ui/GameListCleanup.h"
 #include "../src/ui/LaunchArguments.h"
 #include "../src/ui/ProfileCommandRouting.h"
+#include "../src/ui/ProfileDeletion.h"
 #include "../src/common/NrParameterEdit.h"
 #include <limits>
 #include <shellapi.h>
@@ -15,6 +16,32 @@ static void Check(bool pass, const char* message) {
 }
 int wmain() {
     using namespace DXL;
+    const std::string deletionModel = R"({"profiles":[{"id":"default","exePath":"X:\\default.exe"},{"settings":{"id":"spoof","exePath":"X:\\nested.exe","value":1.2e-3},"id":"game","exePath":"X:\\Games\\Game.exe"},{"id":"empty"}],"note":"\"profiles\":[]"})";
+    std::string deletionExe;
+    Check(ProfileDeletion::ResolveExePath(deletionModel,"game",deletionExe) && deletionExe=="X:\\Games\\Game.exe", "driver cleanup resolves exact saved profile path");
+    Check(ProfileDeletion::ResolveExePath(deletionModel,"empty",deletionExe) && deletionExe.empty(), "legacy empty path may skip driver cleanup");
+    for (const auto* id : {"", "default", "missing", "spoof"})
+        Check(!ProfileDeletion::ResolveExePath(deletionModel,id,deletionExe), "default/unmatched/nested identity cannot target driver cleanup");
+    for (const auto* malformed : {
+        R"({"profiles":[{"id":"game","exePath":"X:\\one.exe"},{"id":"game","exePath":"X:\\two.exe"}]})",
+        R"({"profiles":[{"id":"game","id":"other","exePath":"X:\\one.exe"}]})",
+        R"({"profiles":[{"id":"game","exePath":"X:\\one.exe","exePath":"X:\\two.exe"}]})",
+        R"({"profiles":[{"id":"game","exePath":null}]})",
+        R"({"profiles":[{"id":"game","exePath":"X:\\one\u0000.exe"}]})",
+        R"({"profiles":[{"id":"game"}],"profiles":[]})",
+        R"({"profiles":[{"id":"game"},]})",
+        R"({"profiles":[{"id":"game"}] trailing})"
+    }) Check(!ProfileDeletion::ResolveExePath(malformed,"game",deletionExe), "ambiguous/malformed target rejected");
+    ProfileDeletion::SavedRequest deleteSave;
+    deleteSave.Record(1,true,deletionModel);
+    Check(!deleteSave.Take(2,"game",deletionExe), "unmatched save sequence rejected");
+    Check(deleteSave.Take(1,"game",deletionExe) && deletionExe=="X:\\Games\\Game.exe", "matching successful save authorizes exact snapshot once");
+    Check(!deleteSave.Take(1,"game",deletionExe), "save token cannot be replayed");
+    deleteSave.Record(2,false,deletionModel);
+    Check(!deleteSave.Take(2,"game",deletionExe), "failed model save cannot clean old driver target");
+    deleteSave.Record(3,true,deletionModel);
+    Check(!deleteSave.Take(3,"default",deletionExe), "default profile can never authorize cleanup");
+    std::puts("PASS deletion prerequisites: saved target resolution, malformed/ambiguous input rejection, default exclusion and failed-save/replay isolation (no driver calls)");
     struct ProfileTarget { DWORD pid; std::wstring name; };
     const std::vector<ProfileTarget> targets{{11,L"A.exe"},{22,L"B.exe"},{33,L"a.EXE"}};
     std::vector<DWORD> commanded;

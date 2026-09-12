@@ -506,6 +506,9 @@
         <h2 id="deleteProfileTitle">确认删除配置</h2>
         <p id="deleteProfileName" data-i18n-skip></p>
         <p id="deleteProfileDescription">将从游戏库和自动监控列表中移除此配置，不会删除游戏文件。</p>
+        <p>若已开启 NVIDIA AI 补帧，同时关闭该游戏的驱动补帧设置。</p>
+        <p class="hint">此操作针对 NVIDIA Smooth Motion，不影响游戏原生 DLSS 帧生成。</p>
+        <p class="timing-warning" id="deleteProfileError" role="alert" hidden></p>
         <div class="dialog-actions">
             <button class="btn btn-ghost" id="cancelDeleteProfile" autofocus>取消</button>
             <button class="btn btn-danger" id="confirmDeleteProfile">确认删除</button>

@@ -2,6 +2,7 @@
 
 ## 中文
 
+- 修复删除配置时无法关闭 NVIDIA AI 补帧的问题，并取消强制开启全部图形 API 的设置。
 - 改善 NR 兼容性及渲染路径切换。
 - 修复部分退出崩溃问题，提升游戏内浮层稳定性。
 - 修复工具内调参保存及不同游戏配置之间的隔离问题。
@@ -9,6 +10,7 @@
 
 ## English
 
+- Fixed NVIDIA Smooth Motion cleanup when deleting game profiles, and stopped forcing it on for all graphics APIs.
 - Improved NR compatibility and render-path switching.
 - Fixed some crashes on exit and improved in-game overlay stability.
 - Fixed launcher NR parameter saving and isolation between game profiles.

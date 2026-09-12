@@ -19,6 +19,7 @@
 #include <vector>
 #include <memory>
 #include <cstring>
+#include <cmath>
 #include <regex>
 #include "../common/NrParameterEdit.h"
 #include <filesystem>
@@ -37,6 +38,8 @@
 #include "UiLanguage.h"
 #include "Hotkey.h"
 #include "ProfileCommandRouting.h"
+#include "ProfileDeletion.h"
+#include "../core/NvSmoothMotion.h"
 #include "GameListCleanup.h"
 #include "LibraryMetadata.h"
 #include "../common/Log.h"
@@ -71,6 +74,7 @@ constexpr UINT WM_APP_WATCH_HIT = WM_APP + 3;
 constexpr UINT WM_APP_DX_DONE = WM_APP + 4;
 constexpr UINT WM_APP_CLEANUP_DONE = WM_APP + 5;
 constexpr UINT WM_APP_LIBRARY_DONE = WM_APP + 6;
+constexpr UINT WM_APP_PROFILE_DELETE_DONE = WM_APP + 8;
 
 // 全局快捷键的 id。注入/断开这一个是新加的核心交互 —— 玩家在游戏里按一下就行，
 // 不用切出来选进程。
@@ -1059,6 +1063,100 @@ void StartLibraryWorker(std::unique_ptr<LibraryRequest> request) {
     else SendLog(L"无法启动封面读取线程，请稍后重试。");
 }
 
+struct ProfileDeleteRequest {
+    HWND notify = nullptr;
+    std::string profileId;
+    std::wstring exePath;
+    double sequence = 0;
+};
+DXL::ProfileDeletion::SavedRequest g_profileDeletionSave;
+HANDLE g_profileDeletionThread = nullptr;
+std::mutex g_profileDeletionMutex;
+std::unique_ptr<std::string> g_profileDeletionReply;
+
+std::string ProfileDeletionReply(const ProfileDeleteRequest& request, bool ok,
+    const char* reason, int error = 0) {
+    return "{\"type\":\"profileDeletionReady\",\"payload\":{\"profileId\":" +
+        JsonQuoted(Utf8ToWide(request.profileId)) + ",\"requestId\":" + std::to_string(request.sequence) +
+        ",\"ok\":" + (ok ? "true" : "false") + ",\"reason\":\"" + reason +
+        "\",\"error\":" + std::to_string(error) + "}}";
+}
+
+void SendProfileDeletionReply(std::string_view reply) {
+    const std::wstring profile = Utf8ToWide(DXL::LaunchArguments::ReadField(reply, "profileId"));
+    const std::string reason = DXL::LaunchArguments::ReadField(reply, "reason");
+    const int error = static_cast<int>(ExtractNumberField(reply, "error", 0));
+    if (reason == "ok") {
+        SendLog(g_uiLang.load() == 2
+            ? L"Smooth Motion check before profile deletion completed: " + profile
+            : L"删除配置前的 Smooth Motion 检查已完成：" + profile);
+    } else {
+        SendLog((g_uiLang.load() == 2
+            ? L"Profile kept: Smooth Motion cleanup failed for "
+            : L"配置已保留：Smooth Motion 清理失败，配置 ") + profile +
+            L"; reason=" + Utf8ToWide(reason) + L"; error=" + std::to_wstring(error));
+    }
+    PostToUi(reply);
+}
+
+DWORD WINAPI ProfileDeleteWorker(LPVOID parameter) {
+    std::unique_ptr<ProfileDeleteRequest> request(static_cast<ProfileDeleteRequest*>(parameter));
+    bool ok = false;
+    int error = 0;
+    const char* reason = "driverError";
+    try {
+        const auto result = DXL::NvSmoothMotion::CleanupEnabledSmoothMotionForExe(request->exePath.c_str(), &error);
+        ok = result == DXL::NvSmoothMotion::SmResult::Ok;
+        switch (result) {
+        case DXL::NvSmoothMotion::SmResult::Ok: reason = "ok"; break;
+        case DXL::NvSmoothMotion::SmResult::NvApiUnavailable: reason = "nvapiUnavailable"; break;
+        case DXL::NvSmoothMotion::SmResult::ProfileUnavailable: reason = "profileUnavailable"; break;
+        case DXL::NvSmoothMotion::SmResult::InvalidTarget: reason = "invalidTarget"; break;
+        default: break;
+        }
+    } catch (...) { reason = "driverError"; }
+    {
+        std::lock_guard lock(g_profileDeletionMutex);
+        g_profileDeletionReply = std::make_unique<std::string>(ProfileDeletionReply(*request, ok, reason, error));
+    }
+    PostMessageW(request->notify, WM_APP_PROFILE_DELETE_DONE, 0, 0);
+    return 0;
+}
+
+void StartProfileDeletion(std::string_view json) {
+    auto request = std::make_unique<ProfileDeleteRequest>();
+    request->notify = g_window;
+    request->profileId = DXL::LaunchArguments::ReadField(json, "profileId");
+    request->sequence = ExtractNumberField(json, "requestId", 0);
+    std::string exePath;
+    if (!std::isfinite(request->sequence) || std::floor(request->sequence) != request->sequence ||
+        request->sequence > 9007199254740991.0) request->sequence = 0;
+    if (!g_profileDeletionSave.Take(request->sequence, request->profileId, exePath)) {
+        SendProfileDeletionReply(ProfileDeletionReply(*request, false, "settingsNotSaved"));
+        return;
+    }
+    if (g_profileDeletionThread) {
+        SendProfileDeletionReply(ProfileDeletionReply(*request, false, "busy"));
+        return;
+    }
+    // Empty legacy profiles have no application driver setting to clean up.
+    if (exePath.empty()) {
+        SendProfileDeletionReply(ProfileDeletionReply(*request, true, "ok"));
+        return;
+    }
+    request->exePath = Utf8ToWide(exePath);
+    // Never accept an arbitrary path from the operation message. The driver
+    // helper additionally validates this path before finding an application.
+    const std::filesystem::path target(request->exePath);
+    if (!target.is_absolute() || _wcsicmp(target.extension().c_str(), L".exe") != 0) {
+        SendProfileDeletionReply(ProfileDeletionReply(*request, false, "invalidTarget"));
+        return;
+    }
+    g_profileDeletionThread = CreateThread(nullptr, 0, ProfileDeleteWorker, request.get(), 0, nullptr);
+    if (g_profileDeletionThread) request.release();
+    else SendProfileDeletionReply(ProfileDeletionReply(*request, false, "workerUnavailable", static_cast<int>(GetLastError())));
+}
+
 // 扫描要遍历每个游戏目录找 exe，慢到必须放后台。结果用 PostMessage 交回 UI 线程 ——
 // WebView2 是单线程 COM，别的线程碰它就是未定义行为。
 DWORD WINAPI ScanWorker(LPVOID) {
@@ -1332,7 +1430,9 @@ void SendExtensionsToUi() {
 
 void HandleUiMessage(std::string_view json) {
 	const std::string type = ExtractStringField(json, "type");
-	if (type == "checkUpdates") {
+	if (type == "prepareProfileDeletion") {
+        StartProfileDeletion(json);
+    } else if (type == "checkUpdates") {
         if (!g_updateChecked) { g_updateChecked=true; StartUpdateAction("check"); }
     } else if (type == "downloadUpdate") { StartUpdateAction("download", ExtractStringField(json,"version"));
     } else if (type == "installUpdate") { StartUpdateAction("install", ExtractStringField(json,"version"));
@@ -1428,7 +1528,10 @@ void HandleUiMessage(std::string_view json) {
 		SendLauncherPreferencesToUi();
 	} else if (type == "applySettings") {
 		const std::string payload = ExtractPayload(json);
-		if (payload.empty() || !WriteFileUtf8(SettingsPath(), payload)) {
+        const bool written = !payload.empty() && WriteFileUtf8(SettingsPath(), payload);
+        const double deletionRequest = ExtractNumberField(json, "deleteRequestId", 0);
+        if (deletionRequest > 0) g_profileDeletionSave.Record(deletionRequest, written, payload);
+		if (!written) {
 			SendLog(L"设置保存失败");
 			return;
 		}
@@ -1883,6 +1986,17 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 		if (json) PostToUi(*json);
 		return 0;
 	}
+    case WM_APP_PROFILE_DELETE_DONE: {
+        if (g_profileDeletionThread) {
+            WaitForSingleObject(g_profileDeletionThread, INFINITE);
+            CloseHandle(g_profileDeletionThread);
+            g_profileDeletionThread = nullptr;
+        }
+        std::unique_ptr<std::string> reply;
+        { std::lock_guard lock(g_profileDeletionMutex); reply = std::move(g_profileDeletionReply); }
+        if (reply) SendProfileDeletionReply(*reply);
+        return 0;
+    }
 	case WM_APP_WATCH_HIT: {
         const DWORD pid = (DWORD)wParam;
         std::wstring name = std::filesystem::path(DXL::ProcessImagePath(pid)).filename().wstring();
@@ -1958,6 +2072,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 		return 0;
 	case WM_DESTROY:
 		KillTimer(hwnd, STATUS_TIMER_ID);
+        // Finish an explicitly requested driver write before process exit.
+        if (g_profileDeletionThread) {
+            WaitForSingleObject(g_profileDeletionThread, INFINITE);
+            CloseHandle(g_profileDeletionThread);
+            g_profileDeletionThread = nullptr;
+        }
+        { std::lock_guard lock(g_profileDeletionMutex); g_profileDeletionReply.reset(); }
 		g_webview.Reset();
 		g_controller.Reset();
 		PostQuitMessage(0);

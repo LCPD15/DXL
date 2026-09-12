@@ -74,6 +74,10 @@ if ($Test) {
     Invoke-BuildTool 'cl.exe' ($flags + @(('/Fo' + (Join-Path $objectDir 'test-launcher-controls.obj')),
         ('/Fe' + $controlsTest),(Join-Path $projectRoot 'tests/test-launcher-controls.cpp')))
     Invoke-BuildTool $controlsTest @()
+    $smoothMotionTest = Join-Path $objectDir 'smooth_motion.exe'
+    Invoke-BuildTool 'cl.exe' ($flags + @(('/Fo' + (Join-Path $objectDir 'smooth_motion.obj')),
+        ('/Fe' + $smoothMotionTest),(Join-Path $projectRoot 'tests/smooth_motion.cpp')))
+    Invoke-BuildTool $smoothMotionTest @()
     $mainExeTest = Join-Path $objectDir 'game_main_exe.exe'
     Invoke-BuildTool 'cl.exe' ($flags + @(('/Fo' + (Join-Path $objectDir 'game_main_exe.obj')),
         ('/Fe' + $mainExeTest),(Join-Path $projectRoot 'tests/game_main_exe.cpp'),'/link','shell32.lib','ole32.lib','advapi32.lib'))

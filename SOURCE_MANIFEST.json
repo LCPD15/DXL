@@ -9,7 +9,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "cc149c1c92ecf57b8375733c291cdb5ddceb11f1bc1a49cfdae40bac8e3067f2"
+      "sha256": "0d4fad4a8e7452ef151017a7cac8c35ab7bbe63c581b93a1217f172bbe468ddf"
     },
     {
       "path": "DEPENDENCIES.md",
@@ -105,7 +105,7 @@
     },
     {
       "path": "scripts/build_launcher.ps1",
-      "sha256": "68ec430e25ca2bfdd998f09fca2e0cd659c1233a67227bbf93216c1ecb4ea5e1"
+      "sha256": "6d5c654956e21e6780f7ed7e06992529b0a17f4c7566184e1fdf394bcc037d21"
     },
     {
       "path": "scripts/build_lean_model.py",
@@ -149,7 +149,7 @@
     },
     {
       "path": "scripts/test-dxl-launcher.js",
-      "sha256": "26af43ac84e0ef23cdcffefe4c59dd3d047d705d635414658e37cb7a7e521339"
+      "sha256": "78a3e943a4fe22e7f8dc64907742a413c952fc01c2b05aaea577c7df074451ee"
     },
     {
       "path": "scripts/test-game-compatibility-browser.js",
@@ -218,6 +218,10 @@
     {
       "path": "scripts/test_presentation_owner.ps1",
       "sha256": "81b0fff2002e9be44bebae44ae3d7f9260655ba761c5c4b7ede31a4158bedfa0"
+    },
+    {
+      "path": "scripts/test_smooth_motion.ps1",
+      "sha256": "8dcfedfc1c8e143e7297a72d8f70b0ffe1b68557d9a5ea6a3268f4bc008e36a0"
     },
     {
       "path": "scripts/test_startup_diagnostics.ps1",
@@ -305,7 +309,7 @@
     },
     {
       "path": "src/core/core.cpp",
-      "sha256": "990896297a0cb9ff2e4e71e856b3ebf2306fdbaefff7419cb161e7cc72a0a966"
+      "sha256": "11d15871b5a025242c9214a038768338ba24a87a21ef7efd220935ee9c929e14"
     },
     {
       "path": "src/core/D3D12Validation.h",
@@ -465,7 +469,7 @@
     },
     {
       "path": "src/core/NvSmoothMotion.h",
-      "sha256": "55256256813372fa482c0ede60e7ea9218f3a1d931af932ab26254b71c7e8775"
+      "sha256": "d12363b151257abca96e4570464dfcaf9a9d0b45a36ed20a00b83e92a843b9e9"
     },
     {
       "path": "src/core/OpticalFlow.cpp",
@@ -737,11 +741,15 @@
     },
     {
       "path": "src/ui/main.cpp",
-      "sha256": "a0b68bd06e3e16d5af07b0014ead945eabd9d82845a13ae3699a2fe920a6a0fc"
+      "sha256": "23ef922d24e70782073ddfefa07d0e1ad58e2f0806e0231bc71977a9135770b1"
     },
     {
       "path": "src/ui/ProfileCommandRouting.h",
       "sha256": "c18537e3a274a7ddb5c6bc0d8acebc491ad54c846e4b6505a278ecceb6bb99fc"
+    },
+    {
+      "path": "src/ui/ProfileDeletion.h",
+      "sha256": "42be7107e88703ae605b247a7c02c1820ad3f5f732dea89af85f6ab99f086fe7"
     },
     {
       "path": "src/ui/StartupReport.h",
@@ -765,15 +773,15 @@
     },
     {
       "path": "src/ui/web/app.js",
-      "sha256": "f85734c27590766310ce2579b12afa802eda6df78b5c8940c8e2548b164ce68a"
+      "sha256": "a8507914863bf88f24a8fd00ef988c2d006b4944e2f8d0359a1cc1a5f6474f20"
     },
     {
       "path": "src/ui/web/i18n.js",
-      "sha256": "0438c7572b44aa489296b3a2345b59a3841ab6c7bb7536875ae58b3d864184ae"
+      "sha256": "5984319d94c19d456cd4791a085e381a50b4f059bddb7905688d7e210527fc35"
     },
     {
       "path": "src/ui/web/index.html",
-      "sha256": "c6a8027f8be12382971d4940acaec83ad67a25ffa2c2185e72e4fc699b7dec1b"
+      "sha256": "90c4cf4c83a572f39a470cbeaf1b52a14f212a8d95d1738d21c6c0e658278fe1"
     },
     {
       "path": "src/ui/web/style.css",
@@ -972,6 +980,10 @@
       "sha256": "0c05c2e8575d952132c8dae9b82d0e38af77e00c7446232656b6b757560e7c11"
     },
     {
+      "path": "tests/smooth_motion.cpp",
+      "sha256": "240c2c63196008f8727c2c23c3c076bb4e2c897c4cdd3ceca808e1020a5ed80d"
+    },
+    {
       "path": "tests/startup_diagnostics.cpp",
       "sha256": "e5dc5cdc7359280c403451bc13b9ee9bba9a1848bc7b6c8c06c9d97ac276f42c"
     },
@@ -997,7 +1009,7 @@
     },
     {
       "path": "tests/test-launcher-controls.cpp",
-      "sha256": "f0b9045aeb7fc6ab34234d1d160058eb80b73e1e9d97805a9af88834e0c2a07d"
+      "sha256": "d7d23cc99b74f6a586a4d65bb8d886f76bbd6dc14660f923626b3dcc427e4ae9"
     },
     {
       "path": "tests/test-launcher-preferences.cpp",

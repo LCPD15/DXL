@@ -2851,8 +2851,8 @@ static void UiBuildPanel(bool escapePressed) {
 
     ImGui::Separator();
     if (ImGui::CollapsingHeader("Frame Gen (NVIDIA Smooth Motion)")) {
-        // NVIDIA Smooth Motion（驱动级 AI 插帧）开关。它不碰游戏渲染管线，能和
-        // DLSS5 共存。开关是驱动 per-app profile 设置，改完必须重启游戏才生效。
+        // Driver profile setting, independent of DXL's JSON. Compatibility
+        // depends on the game/API; changing this value requires a game restart.
         // -3=未读 -2=NVAPI 不可用 0=关 1=开
         static int smState = -3;
         if (smState == -3) {
@@ -2893,8 +2893,8 @@ static void UiBuildPanel(bool escapePressed) {
                 UiPushToast(UiText("Smooth Motion toggle failed / 切换失败", "Smooth Motion toggle failed"));
             }
         }
-        ImGui::TextDisabled("Driver-level AI frame gen — coexists with DLSS5");
-        ImGui::TextDisabled(UiText("驱动级 AI 插帧，可与 DLSS5 共存（改完重启游戏生效）", "Restart the game after changing Smooth Motion."));
+        ImGui::TextDisabled(UiText("仅在 NVIDIA App 显示该游戏支持 AI 补帧时开启。", "Only enable when NVIDIA App supports Smooth Motion for this game."));
+        ImGui::TextDisabled(UiText("改完重启游戏生效；无法进入游戏时，可在工具内删除配置以关闭。", "Restart to apply. If the game cannot start, delete its DXL profile to turn this off."));
     }
 
     char uiKey[48], enKey2[48];

@@ -399,6 +399,31 @@ assert.equal(run('draft.profiles.length'), 3, 'Escape/cancel invalidates pending
 element('deleteProfile').handlers.click();
 run("activeId = 'keep'; renderAll()");
 element('confirmDeleteProfile').handlers.click();
+assert.equal(run("draft.profiles.some(p => p.id === 'remove')"), true, 'keep profile until driver cleanup succeeds');
+const deletion = messages.findLast(m => m.type === 'prepareProfileDeletion');
+assert.equal(deletion.profileId, 'remove');
+assert.deepEqual(Object.keys(deletion).sort(), ['payload', 'profileId', 'requestId', 'type']);
+const beforeDeleteSave = messages.at(messages.indexOf(deletion) - 1);
+assert.equal(beforeDeleteSave.type, 'applySettings');
+assert.equal(beforeDeleteSave.deleteRequestId, deletion.requestId);
+assert.equal(beforeDeleteSave.payload.profiles.some(p => p.id === 'remove'), true);
+post('profileDeletionReady', {profileId:'keep', requestId:deletion.requestId, ok:true});
+assert.equal(run("draft.profiles.some(p => p.id === 'remove')"), true, 'wrong-profile cleanup reply ignored');
+post('profileDeletionReady', {...deletion, requestId:deletion.requestId-1, ok:true});
+assert.equal(run("draft.profiles.some(p => p.id === 'remove')"), true, 'stale cleanup reply ignored');
+post('profileDeletionReady', {...deletion, ok:false, reason:'driverError',error:-160});
+assert.equal(run("draft.profiles.some(p => p.id === 'remove')"), true, 'driver failure preserves profile');
+assert.equal(run("saved.profiles.some(p => p.id === 'remove')"), true, 'driver failure preserves saved profile');
+assert.equal(element('deleteProfileDialog').open, true);
+assert.match(element('deleteProfileError').textContent, /配置已保留/);
+assert.match(element('deleteProfileError').textContent, /-160/);
+assert.doesNotMatch(element('deleteProfileError').textContent, /管理员/,'setting-not-found is not a permission error');
+element('confirmDeleteProfile').handlers.click();
+const retriedDeletion = messages.findLast(m => m.type === 'prepareProfileDeletion');
+assert.notEqual(retriedDeletion.requestId, deletion.requestId);
+post('profileDeletionReady', {...deletion, ok:true});
+assert.equal(run("draft.profiles.some(p => p.id === 'remove')"), true, 'old successful reply cannot complete a retry');
+post('profileDeletionReady', {...retriedDeletion, ok:true});
 assert.equal(run("draft.profiles.some(p => p.id === 'remove')"), false);
 assert.equal(run("draft.profiles.some(p => p.id === 'keep')"), true, 'confirmation deletes its named profile, not a later selection');
 run('persistAll()');
@@ -408,6 +433,31 @@ assert.equal(element('deleteProfile').disabled, true);
 element('deleteProfile').handlers.click();
 assert.equal(element('deleteProfileDialog').open, false);
 console.log('PASS confirmed profile removal: cancel/Escape, named target, default protection and watch-list persistence');
+
+post('settings', {watchGames:false, scanned:true, lang:'zh', profiles:[
+    {id:'default', name:'Default', settings:{}},
+    {id:'change', name:'Original', exePath:'X:\\old.exe', settings:{}},
+    {id:'other', name:'Other', exePath:'X:\\other.exe', settings:{}}
+]});
+messages.length=0;
+run("activeId='change';renderAll()");
+element('deleteProfile').handlers.click();
+element('confirmDeleteProfile').handlers.click();
+assert.equal(element('profileExePath').disabled,true);
+const changingDelete = messages.findLast(m=>m.type==='prepareProfileDeletion');
+run("activeId='other';renderAll()");
+assert.equal(element('profileExePath').disabled,false,'other profile remains editable');
+element('deleteProfile').handlers.click();
+element('confirmDeleteProfile').handlers.click();
+assert.equal(messages.filter(m=>m.type==='prepareProfileDeletion').length,1,'only one cleanup at a time');
+run("draft.profiles[1]={...draft.profiles[1],exePath:'X:/replacement.exe'}");
+post('profileDeletionReady', {...changingDelete,ok:true});
+assert.equal(run("draft.profiles[1].exePath"),'X:/replacement.exe','same ID replacement survives prior cleanup');
+assert.match(element('deleteProfileError').textContent,/配置已变更/);
+element('cancelDeleteProfile').handlers.click();
+assert.match(html,/若已开启 NVIDIA AI 补帧，同时关闭该游戏的驱动补帧设置/);
+assert.match(html,/不影响游戏原生 DLSS 帧生成/);
+console.log('PASS deletion cleanup: explicit confirmation only, saved-model prerequisite, async identity/sequence isolation, failure retention and replacement protection');
 
 assert.equal(run("resolvedInjectionTiming({exe:'SanAndreas.EXE',settings:{}})"),'late');
 assert.equal(run("resolvedInjectionTiming({exe:'sanandreas.exe',settings:{injectTiming:'early'}})"),'early');

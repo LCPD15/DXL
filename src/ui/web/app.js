@@ -707,6 +707,9 @@ function onHostMessage(raw) {
         case 'nrParameterEdited':
             acknowledgeNrEdit(msg.payload || {});
             break;
+        case 'profileDeletionReady':
+            finishProfileDeletion(msg.payload || {});
+            break;
 		case 'status':
 			setStatus(msg.payload);
 			break;
@@ -1211,6 +1214,8 @@ let iconAsked = new Set();
 // 正在改名 / 正在等删除确认的那一行。同时只允许一个，省掉一堆状态互斥的麻烦。
 let renamingId = null;
 let confirmDeleteId = null;
+let pendingProfileDelete = null;
+let profileDeleteSequence = 0;
 let profileFilter = '';
 
 const ROW_ICONS = {
@@ -1616,7 +1621,8 @@ function renderAll() {
 	renderHomeBadges();
 	document.getElementById('settingsFor').textContent =
 		'当前配置：' + (profile.name || profile.id);
-	document.getElementById('deleteProfile').disabled = profile.id === 'default';
+	document.getElementById('deleteProfile').disabled = profile.id === 'default' || Boolean(pendingProfileDelete);
+    document.getElementById('profileExePath').disabled = pendingProfileDelete?.id === profile.id;
 
 	const watchToggle = document.getElementById('watchGames');
 	if (watchToggle) watchToggle.checked = Boolean(draft.watchGames);
@@ -2031,9 +2037,10 @@ if (profileSearchBox) {
 const deleteProfileDialog = document.getElementById('deleteProfileDialog');
 document.getElementById('deleteProfile').addEventListener('click', () => {
     const profile = draft.profiles.find(p => p.id === activeId);
-    if (!profile || profile.id === 'default') return;
+    if (!profile || profile.id === 'default' || pendingProfileDelete) return;
     confirmDeleteId = profile.id;
     document.getElementById('deleteProfileName').textContent = profile.name || profile.id;
+    document.getElementById('deleteProfileError').hidden = true;
     deleteProfileDialog.showModal();
 });
 deleteProfileDialog.addEventListener('close', () => { confirmDeleteId = null; });
@@ -2046,13 +2053,51 @@ document.getElementById('confirmDeleteProfile').addEventListener('click', () => 
     const id = confirmDeleteId;
     confirmDeleteId = null;
     deleteProfileDialog.close();
-    if (!id || id === 'default' || !draft.profiles.some(p => p.id === id)) return;
-    draft.profiles = draft.profiles.filter(p => p.id !== id);
-    forgetIcon(id);
-    if (activeId === id) activeId = 'default';
+    const profile = draft.profiles.find(p => p.id === id);
+    if (!profile || id === 'default' || pendingProfileDelete) return;
+    pendingProfileDelete = {id, profile, exePath: profile.exePath || '', requestId: ++profileDeleteSequence};
+    // Native resolves only the named profile from this successfully saved
+    // snapshot; the operation itself cannot supply a different executable.
+    host.post('applySettings', confirmedModel(draft), {noReload: 1, deleteRequestId: pendingProfileDelete.requestId});
+    host.post('prepareProfileDeletion', null, {profileId: id, requestId: pendingProfileDelete.requestId});
     renderAll();
-    markDirty();
 });
+
+function finishProfileDeletion(reply) {
+    const pending = pendingProfileDelete;
+    if (!pending || pending.id !== reply.profileId || pending.requestId !== Number(reply.requestId)) return;
+    pendingProfileDelete = null;
+    const profile = draft.profiles.find(p => p.id === pending.id);
+    // Reusing an ID or editing the path during an asynchronous operation must
+    // never delete the replacement profile, even if the old driver write worked.
+    const unchanged = profile === pending.profile && (profile.exePath || '') === pending.exePath;
+    if (!reply.ok || !unchanged) {
+        renderAll();
+        if (!profile) return;
+        const t = window.I18N ? I18N.t : x => x;
+        const message = !unchanged ? '配置已变更，已取消删除。请重新确认。'
+            : reply.reason === 'settingsNotSaved' ? '配置保存失败，已取消删除。请重试。'
+            : reply.reason === 'busy' ? '正在处理另一个配置，请稍后重试。'
+            : reply.reason === 'invalidTarget' ? '游戏 exe 路径无效，配置已保留。请检查路径后重试。'
+            : Number(reply.error) === -175 ? 'NVIDIA 驱动拒绝访问，配置已保留。请以管理员身份启动工具后重试。'
+            : '未能关闭该游戏的 NVIDIA AI 补帧，配置已保留。请查看日志。';
+        confirmDeleteId = profile.id;
+        document.getElementById('deleteProfileName').textContent = profile.name || profile.id;
+        const error = document.getElementById('deleteProfileError');
+        const code = Number(reply.error);
+        error.textContent = t(message) + (Number.isInteger(code) && code !== 0 ? ' ' + t('错误码：') + code : '');
+        error.hidden = false;
+        deleteProfileDialog.showModal();
+        return;
+    }
+    draft.profiles = draft.profiles.filter(p => p.id !== pending.id);
+    for (const [token, edit] of nrPending) if (edit.id === pending.id) nrPending.delete(token);
+    liveApplyProfiles.delete(pending.id);
+    forgetIcon(pending.id);
+    if (activeId === pending.id) activeId = 'default';
+    renderAll();
+    persistAll();
+}
 
 document.getElementById('launchBtn').addEventListener('click', () =>
 	launchProfile(activeProfile()));

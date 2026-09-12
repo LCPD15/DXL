@@ -2,8 +2,7 @@
 // NVIDIA Smooth Motion（驱动级 AI 插帧）开关 —— 通过 NVAPI 改 per-app profile。
 //
 // Smooth Motion 是 NVIDIA App 里的"AI 插帧"（驱动级帧生成），和游戏内 FG 不同：
-// 它不改游戏的 swapchain / 不碰 NVGX API / 不碰游戏渲染管线，所以能和本 MOD 共存
-// （实测鬼武者开 Smooth Motion 时 swapchain BufferCount 仍=3，不触发我们的 FG 检测）。
+// 是否可用取决于驱动、游戏及当前图形 API；DRS 设置存在不代表游戏兼容。
 //
 // 它的开关是**驱动 per-app profile 设置**，游戏启动时读取，运行中改了必须重启游戏
 // 才生效 —— 所以 UI 上勾选后只改 profile 并提示"重启游戏生效"，不尝试实时切换。
@@ -18,6 +17,7 @@
 
 #include <windows.h>
 #include <cwchar>
+#include <initializer_list>
 
 namespace DXL {
 namespace NvSmoothMotion {
@@ -36,6 +36,7 @@ constexpr unsigned int kApiDrsFindApplicationByName = 0xEEE566B2;
 constexpr unsigned int kApiDrsFindProfileByName = 0x7E4A9A0B;
 constexpr unsigned int kApiDrsCreateProfile = 0xCC176068;
 constexpr unsigned int kApiDrsCreateApplication = 0x4347A9DE;
+constexpr unsigned int kApiDrsDeleteProfileSetting = 0xE4A26362;
 constexpr unsigned int kApiSysGetDriverAndBranchVersion = 0x2926AAAD;
 constexpr unsigned int kApiEnumPhysicalGpus = 0xE5AC921F;
 constexpr unsigned int kApiGpuGetFullName = 0xCEEE8E9F;
@@ -43,12 +44,18 @@ constexpr unsigned int kApiUnload = 0xD22BDD7E;
 
 /* ---------------- Smooth Motion 设置 ID 与取值 ---------------- */
 constexpr unsigned int kSmEnableId = 0xB0D384C0;      // 0=关 1=开
-constexpr unsigned int kSmEnableApisId = 0xB0CC0875;  // bitfield，默认 7（DX11+DX12+Vulkan）
+constexpr unsigned int kSmEnableApisId = 0xB0CC0875;  // API 限制；不得强写 7 绕过驱动预设
 
 /* ---------------- NVAPI 常量 ---------------- */
 constexpr unsigned int kDrsDwordType = 0;
 constexpr unsigned int kDrsCurrentProfileLocation = 0;
 constexpr int kOk = 0;  // NVAPI_OK
+constexpr int kSettingNotFound = -160;
+constexpr int kProfileNotFound = -163;
+constexpr int kExecutableNotFound = -166;
+constexpr int kNvidiaDeviceNotFound = -6;
+constexpr int kInvalidArgument = -5;
+constexpr int kUnavailable = -3;
 
 /* ---------------- 函数指针类型（NVAPI 用 __cdecl） ---------------- */
 using QueryInterfaceFn = void* (__cdecl*)(unsigned int);
@@ -73,6 +80,8 @@ using DrsCreateProfileFn = int(__cdecl*)(void* session, void* profileInfo,
 	void** profile);
 using DrsCreateApplicationFn = int(__cdecl*)(void* session, void* profile,
 	void* app);
+using DrsDeleteProfileSettingFn = int(__cdecl*)(void* session, void* profile,
+	unsigned int settingId);
 using SysGetDriverAndBranchVersionFn = int(__cdecl*)(
 	unsigned int* driverVersion, char branchString[64]);
 using EnumPhysicalGpusFn = int(__cdecl*)(
@@ -141,6 +150,8 @@ enum class SmResult {
 	NvApiUnavailable = 1,   // nvapi64 加载 / 初始化失败（非 N 卡或驱动问题）
 	ProfileUnavailable = 2, // 找不到游戏 profile，且无法创建（需 NVIDIA App 添加）
 	WriteFailed = 3,        // SetSetting 或 SaveSettings 失败
+	InvalidTarget = 4,
+	ReadFailed = 5,
 };
 
 /* ---------------- 内部：加载 + 取函数指针 ---------------- */
@@ -158,18 +169,39 @@ struct NvApi {
 	DrsFindProfileByNameFn findProfileByName = nullptr;
 	DrsCreateProfileFn createProfile = nullptr;
 	DrsCreateApplicationFn createApplication = nullptr;
+	DrsDeleteProfileSettingFn deleteProfileSetting = nullptr;
 	SysGetDriverAndBranchVersionFn getDriverAndBranchVersion = nullptr;
 	EnumPhysicalGpusFn enumPhysicalGpus = nullptr;
 	GpuGetFullNameFn gpuGetFullName = nullptr;
 	bool loaded = false;
+	bool initialized = false;
+	HMODULE module = nullptr;
+	bool moduleMissing = false;
 
-	~NvApi() { if (loaded && unload) unload(); }
+	~NvApi() {
+		if (initialized && unload) unload();
+		if (module) FreeLibrary(module);
+	}
 };
 
 inline bool LoadNvApi(NvApi& api) noexcept {
 	if (api.loaded) return true;
-	HMODULE mod = LoadLibraryW(L"nvapi64.dll");
-	if (!mod) return false;
+	HMODULE mod = LoadLibraryExW(L"nvapi64.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+	if (!mod) {
+		// A failed load may also mean a broken dependency. Only a genuinely
+		// absent system DLL is a harmless 'not installed' result for cleanup.
+		wchar_t path[MAX_PATH]{};
+		const UINT length = GetSystemDirectoryW(path, MAX_PATH);
+		if (length && length + 13 < MAX_PATH) {
+			wcscat_s(path, L"\\nvapi64.dll");
+			if (GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES) {
+				const DWORD error = GetLastError();
+				api.moduleMissing = error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
+			}
+		}
+		return false;
+	}
+	api.module = mod;
 	auto query = reinterpret_cast<QueryInterfaceFn>(
 		GetProcAddress(mod, "nvapi_QueryInterface"));
 	if (!query) return false;
@@ -199,6 +231,8 @@ inline bool LoadNvApi(NvApi& api) noexcept {
 		query(kApiDrsCreateProfile));
 	api.createApplication = reinterpret_cast<DrsCreateApplicationFn>(
 		query(kApiDrsCreateApplication));
+	api.deleteProfileSetting = reinterpret_cast<DrsDeleteProfileSettingFn>(
+		query(kApiDrsDeleteProfileSetting));
 	api.getDriverAndBranchVersion = reinterpret_cast<SysGetDriverAndBranchVersionFn>(
 		query(kApiSysGetDriverAndBranchVersion));
 	api.enumPhysicalGpus = reinterpret_cast<EnumPhysicalGpusFn>(
@@ -209,23 +243,39 @@ inline bool LoadNvApi(NvApi& api) noexcept {
 	return true;
 }
 
+inline int InitializeNvApi(NvApi& api) noexcept {
+	if (api.initialized) return kOk;
+	const int result = api.initialize ? api.initialize() : kUnavailable;
+	api.initialized = (result == kOk);
+	return result;
+}
+
 // 找当前游戏 exe 的 per-app profile。先按完整路径、再按文件名回退。只读查找，
 // 找不到返回 nullptr（不创建）。
 inline void* FindGameProfile(NvApi& api, void* session,
-	const wchar_t* exePath) noexcept {
+	const wchar_t* exePath, int* outError = nullptr) noexcept {
+	if (outError) *outError = kInvalidArgument;
+	if (!exePath || !*exePath || !api.findApplicationByName) return nullptr;
 	DrsApplicationV4 app{};
 	app.version = NVSM_MAKE_VERSION(DrsApplicationV4, 4);
 	void* profile = nullptr;
 
 	// 完整路径
-	if (api.findApplicationByName(session, exePath, &profile, &app) == kOk) {
+	int result = api.findApplicationByName(session, exePath, &profile, &app);
+	if (outError) *outError = result;
+	if (result == kOk) {
 		return profile;
 	}
+	if (result != kExecutableNotFound && result != kProfileNotFound) return nullptr;
 	// 文件名回退
 	const wchar_t* leaf = wcsrchr(exePath, L'\\');
 	leaf = leaf ? leaf + 1 : exePath;
 	profile = nullptr;
-	if (api.findApplicationByName(session, leaf, &profile, &app) == kOk) {
+	app = {};
+	app.version = NVSM_MAKE_VERSION(DrsApplicationV4, 4);
+	result = api.findApplicationByName(session, leaf, &profile, &app);
+	if (outError) *outError = result;
+	if (result == kOk) {
 		return profile;
 	}
 	return nullptr;
@@ -235,8 +285,10 @@ inline void* FindGameProfile(NvApi& api, void* session,
 // profile + 把 exe 挂进去）。返回 nullptr 表示既找不到也建不了。
 inline void* FindOrCreateGameProfile(NvApi& api, void* session,
 	const wchar_t* exePath) noexcept {
-	void* profile = FindGameProfile(api, session, exePath);
+	int error = kOk;
+	void* profile = FindGameProfile(api, session, exePath, &error);
 	if (profile) return profile;
+	if (error != kProfileNotFound && error != kExecutableNotFound) return nullptr;
 	if (!api.createProfile || !api.createApplication) return nullptr;
 
 	const wchar_t* leaf = wcsrchr(exePath, L'\\');
@@ -281,7 +333,7 @@ inline bool ReadDriverVersion(unsigned int* drvVersion, char branch[64]) noexcep
 	if (branch) branch[0] = 0;
 	NvApi api;
 	if (!LoadNvApi(api)) return false;
-	if (!api.initialize || api.initialize() != kOk) return false;
+	if (InitializeNvApi(api) != kOk) return false;
 	if (!api.getDriverAndBranchVersion) return false;
 	unsigned int v = 0;
 	char b[64]{};
@@ -294,13 +346,13 @@ inline bool ReadDriverVersion(unsigned int* drvVersion, char branch[64]) noexcep
 	return true;
 }
 
-// 读第一块物理 GPU 的完整名称（用于诊断显卡型号；Smooth Motion 官方仅 RTX 50 系
-// 开放，40 系需特殊手段，30 系及以下驱动不提供该 setting）。成功返回 true。
+// 读第一块物理 GPU 的名称，仅用于诊断，不能代表游戏实际使用的显卡。
+// Smooth Motion 已支持 RTX 40 / 50；是否兼容具体游戏仍应以 NVIDIA App 为准。
 inline bool ReadGpuName(char name[64]) noexcept {
 	if (name) name[0] = 0;
 	NvApi api;
 	if (!LoadNvApi(api)) return false;
-	if (!api.initialize || api.initialize() != kOk) return false;
+	if (InitializeNvApi(api) != kOk) return false;
 	if (!api.enumPhysicalGpus || !api.gpuGetFullName) return false;
 	void* handles[64]{};
 	unsigned int count = 0;
@@ -316,21 +368,20 @@ inline bool ReadGpuName(char name[64]) noexcept {
 
 // 读 Smooth Motion 当前开关。返回 -1=未知/失败，0=关，1=开。
 // outError（可选）回填 NvAPI_DRS_GetSetting 的返回码，便于诊断 setting 是否存在。
-inline int GetSmoothMotion(int* outError = nullptr) noexcept {
+inline int GetSmoothMotionForExe(const wchar_t* exePath, int* outError = nullptr) noexcept {
 	if (outError) *outError = 0;
 	NvApi api;
 	if (!LoadNvApi(api)) return -1;
-	if (!api.initialize || api.initialize() != kOk) return -1;
+	if (InitializeNvApi(api) != kOk) return -1;
 
 	void* session = nullptr;
-	if (!api.createSession || api.createSession(&session) != kOk) return -1;
-	if (api.loadSettings && api.loadSettings(session) != kOk) {
+	if (!api.createSession || !api.destroySession || !api.loadSettings ||
+		api.createSession(&session) != kOk) return -1;
+	if (api.loadSettings(session) != kOk) {
 		api.destroySession(session);
 		return -1;
 	}
 
-	wchar_t exePath[MAX_PATH]{};
-	GetModuleFileNameW(nullptr, exePath, MAX_PATH);
 	void* profile = FindGameProfile(api, session, exePath);
 	if (!profile) {
 		api.destroySession(session);
@@ -353,18 +404,140 @@ inline int GetSmoothMotion(int* outError = nullptr) noexcept {
 	return result;
 }
 
+inline int GetSmoothMotion(int* outError = nullptr) noexcept {
+	wchar_t exePath[MAX_PATH]{};
+	GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+	return GetSmoothMotionForExe(exePath, outError);
+}
+
+// A short DRS session keeps these changes separate from DXL's JSON settings.
+// Only save after every requested operation succeeds. NVIDIA profiles can be
+// shared by several executables; never remove the profile or unrelated settings.
+inline int ReadSetting(NvApi& api, void* session, void* profile,
+	unsigned int id, DrsSetting& setting) noexcept {
+	setting = {};
+	setting.version = NVSM_MAKE_VERSION(DrsSetting, 1);
+	setting.settingId = id;
+	unsigned int extra = 0;
+	if (!api.getSetting) return kUnavailable;
+	const int result = api.getSetting(session, profile, id, &setting, &extra);
+	return result == kOk && setting.settingType != kDrsDwordType ? kInvalidArgument : result;
+}
+
+inline bool IsUserProfileOverride(const DrsSetting& setting) noexcept {
+	return setting.settingLocation == kDrsCurrentProfileLocation && !setting.isCurrentPredefined;
+}
+
+inline SmResult CleanupEnabledInSession(NvApi& api, void* session,
+	const wchar_t* exePath, int* outError) noexcept {
+	int error = kOk;
+	const auto fail = [&](SmResult result, int code) {
+		if (outError) *outError = code;
+		return result;
+	};
+	void* profile = FindGameProfile(api, session, exePath, &error);
+	if (!profile) {
+		if (error == kProfileNotFound || error == kExecutableNotFound) return SmResult::Ok;
+		return fail(SmResult::ReadFailed, error == kOk ? kInvalidArgument : error);
+	}
+	DrsSetting enabled{};
+	error = ReadSetting(api, session, profile, kSmEnableId, enabled);
+	if (error == kSettingNotFound) return SmResult::Ok;
+	if (error != kOk) return fail(SmResult::ReadFailed, error);
+	if (!enabled.current.u32Value) return SmResult::Ok;
+	if (!api.deleteProfileSetting || !api.setSetting || !api.saveSettings)
+		return fail(SmResult::NvApiUnavailable, kUnavailable);
+
+	DrsSetting apis{};
+	const int apiRead = ReadSetting(api, session, profile, kSmEnableApisId, apis);
+	if (apiRead != kOk && apiRead != kSettingNotFound)
+		return fail(SmResult::ReadFailed, apiRead);
+	bool changed = false;
+	for (const DrsSetting* setting : { &enabled, &apis }) {
+		if (setting == &apis && apiRead != kOk) continue;
+		if (!IsUserProfileOverride(*setting)) continue;
+		error = api.deleteProfileSetting(session, profile, setting->settingId);
+		// Some drivers expose Smooth Motion through the newer Get/Set entry
+		// points while the public Delete entry point cannot see those settings.
+		// A delete miss is not evidence that the enabled value disappeared:
+		// re-read below and explicitly write OFF through the working Set API.
+		if (error == kSettingNotFound) continue;
+		if (error != kOk) return fail(SmResult::WriteFailed, error);
+		changed = true;
+	}
+
+	// Restoring the default can inherit an enabled global/predefined value.
+	// Keep that global value intact and explicitly disable this game profile.
+	error = ReadSetting(api, session, profile, kSmEnableId, enabled);
+	if (error != kOk && error != kSettingNotFound) return fail(SmResult::ReadFailed, error);
+	if (error == kOk && enabled.current.u32Value) {
+		DrsSetting off{};
+		off.version = NVSM_MAKE_VERSION(DrsSetting, 1);
+		off.settingId = kSmEnableId;
+		off.settingType = kDrsDwordType;
+		off.settingLocation = kDrsCurrentProfileLocation;
+		error = api.setSetting(session, profile, &off, 0, 0);
+		if (error != kOk) return fail(SmResult::WriteFailed, error);
+		changed = true;
+		error = ReadSetting(api, session, profile, kSmEnableId, enabled);
+		if (error != kOk || enabled.current.u32Value)
+			return fail(SmResult::WriteFailed, error == kOk ? kInvalidArgument : error);
+	}
+	if (changed) {
+		error = api.saveSettings(session);
+		if (error != kOk) return fail(SmResult::WriteFailed, error);
+	}
+	return SmResult::Ok;
+}
+
+inline SmResult CleanupEnabledSmoothMotionForExe(const wchar_t* exePath,
+	int* outError = nullptr) noexcept {
+	if (outError) *outError = kOk;
+	const wchar_t* ext = exePath ? wcsrchr(exePath, L'.') : nullptr;
+	if (!ext || _wcsicmp(ext, L".exe") != 0) {
+		if (outError) *outError = kInvalidArgument;
+		return SmResult::InvalidTarget;
+	}
+	NvApi api;
+	if (!LoadNvApi(api)) {
+		// Missing NVAPI is normal on a computer without an NVIDIA driver.
+		if (api.moduleMissing) return SmResult::Ok;
+		if (outError) *outError = kUnavailable;
+		return SmResult::NvApiUnavailable;
+	}
+	int error = InitializeNvApi(api);
+	if (error == kNvidiaDeviceNotFound) return SmResult::Ok;
+	if (error != kOk || !api.createSession || !api.destroySession || !api.loadSettings) {
+		if (outError) *outError = error == kOk ? kUnavailable : error;
+		return SmResult::NvApiUnavailable;
+	}
+	void* session = nullptr;
+	error = api.createSession(&session);
+	if (error != kOk || !session) {
+		if (outError) *outError = error == kOk ? kUnavailable : error;
+		return SmResult::ReadFailed;
+	}
+	SmResult result = SmResult::ReadFailed;
+	error = api.loadSettings(session);
+	if (error == kOk) result = CleanupEnabledInSession(api, session, exePath, outError);
+	else if (outError) *outError = error;
+	api.destroySession(session);
+	return result;
+}
+
 // 开/关 Smooth Motion。返回 SmResult：Ok=成功（需重启游戏生效），否则细分失败原因。
 // outError（可选）回填最后一次 NVAPI 调用的返回码，便于日志定位。
 inline SmResult SetSmoothMotion(bool enable, int* outError = nullptr) noexcept {
 	if (outError) *outError = 0;
 	NvApi api;
 	if (!LoadNvApi(api)) return SmResult::NvApiUnavailable;
-	if (!api.initialize || api.initialize() != kOk) return SmResult::NvApiUnavailable;
+	if (InitializeNvApi(api) != kOk) return SmResult::NvApiUnavailable;
 
 	void* session = nullptr;
-	if (!api.createSession || api.createSession(&session) != kOk)
+	if (!api.createSession || !api.destroySession || !api.loadSettings || !api.saveSettings ||
+		api.createSession(&session) != kOk)
 		return SmResult::NvApiUnavailable;
-	if (api.loadSettings && api.loadSettings(session) != kOk) {
+	if (api.loadSettings(session) != kOk) {
 		api.destroySession(session);
 		return SmResult::NvApiUnavailable;
 	}
@@ -391,17 +564,8 @@ inline SmResult SetSmoothMotion(bool enable, int* outError = nullptr) noexcept {
 	if (outError) *outError = r;
 	ok = (r == kOk);
 
-	// 2) 允许的 API（开的时候顺手设成全开，避免某些游戏漏了 API 位导致不生效）
-	if (ok && enable) {
-		DrsSetting apis{};
-		apis.version = NVSM_MAKE_VERSION(DrsSetting, 1);
-		apis.settingId = kSmEnableApisId;
-		apis.settingType = kDrsDwordType;
-		apis.settingLocation = kDrsCurrentProfileLocation;
-		apis.current.u32Value = 0x7u;   // DX11 | DX12 | Vulkan
-		apis.predefined.u32Value = 0x7u;
-		api.setSetting(session, profile, &apis, 0, 0);
-	}
+	// Preserve the driver's API restrictions. Setting every API bit can enable
+	// Smooth Motion in games/APIs that NVIDIA App intentionally excludes.
 
 	if (ok && api.saveSettings) {
 		r = api.saveSettings(session);
