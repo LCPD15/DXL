@@ -57,7 +57,7 @@ def main():
         to.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(p, to)
         records.append({"path":rel.as_posix(),"sha256":hashlib.sha256(to.read_bytes()).hexdigest()})
-    (dest/"SOURCE_MANIFEST.json").write_text(json.dumps({"version":"0.4","git_history_included":False,
+    (dest/"SOURCE_MANIFEST.json").write_text(json.dumps({"version":"0.5","git_history_included":False,
         "runtime_or_model_binaries_included":False,"files":records},indent=2),encoding="utf-8")
     count, problems = audit(dest)
     if problems:

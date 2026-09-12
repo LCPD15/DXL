@@ -230,10 +230,14 @@ function Invoke-DxlUpdate([string]$RequestFile) {
                 Write-DxlJson ($archive+'.json') $r
                 if (!(Test-DxlCached $cache $r)) {
                     $part=$archive+'.part'
-                    [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
-                    Save-DxlDownload $r.url $part ([long]$r.size)
-                    if ((Get-Item -LiteralPath $part).Length -ne [long]$r.size -or (Get-FileHash -LiteralPath $part).Hash -ne $r.sha256) { Remove-Item -LiteralPath $part; throw 'Download integrity failure' }
-                    Move-Item -LiteralPath $part -Destination $archive -Force
+                    try {
+                        [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
+                        Save-DxlDownload $r.url $part ([long]$r.size)
+                        if ((Get-Item -LiteralPath $part).Length -ne [long]$r.size -or (Get-FileHash -LiteralPath $part).Hash -ne $r.sha256) { throw 'Download integrity failure' }
+                        Move-Item -LiteralPath $part -Destination $archive -Force
+                    } finally {
+                        if (Test-Path -LiteralPath $part) { Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue }
+                    }
                 }
                 Write-DxlJson ($archive+'.json') $r
                 $result=@{state='downloaded';version=$r.version;body=$r.body;local=$false}
@@ -245,12 +249,24 @@ function Invoke-DxlUpdate([string]$RequestFile) {
                 $parent=Get-Process -Id ([int]$q.parentPid) -ErrorAction SilentlyContinue
                 if ($parent) {
                     if ($parent.Path -ine (Join-Path $target 'DXL.exe')) { throw 'Unexpected parent process' }
-                    if (!$parent.WaitForExit(30000)) { throw 'DXL did not exit' }
                 }
-                $restart=$true
+                # Older launchers close immediately and do not understand ready.json.
+                # Preserve their recovery/restart behavior if extraction fails.
+                if ($q.waitForReady -ne $true) {
+                    if ($parent -and !$parent.WaitForExit(30000)) { throw 'DXL did not exit' }
+                    $parent=$null
+                    $restart=$true
+                }
                 $job=Split-Path -Parent $RequestFile
                 $stage=Join-Path $job 'stage'; $backup=Join-Path $job 'backup'
                 $manifest=Expand-DxlPackage $archive $stage $r.version
+                if ($q.waitForReady -eq $true) {
+                    Write-DxlJson (Join-Path $job 'ready.json') @{state='ready';version=$r.version}
+                }
+                if ($parent) {
+                    if (!$parent.WaitForExit(30000)) { throw 'DXL did not exit' }
+                }
+                $restart=$true
                 Install-DxlFiles $stage $target $backup $manifest
                 Start-Process -FilePath (Join-Path $target 'DXL.exe') -WorkingDirectory $target
                 $restart=$false
@@ -266,7 +282,9 @@ function Invoke-DxlUpdate([string]$RequestFile) {
     } catch {
         $result=@{state=$(if ($q.action -eq 'check') {'none'} else {'error'});detail=$_.Exception.Message}
         Write-DxlJson $resultPath $result
-        if ($q.action -eq 'install') {
+        # A handoff-aware launcher is still open during preflight failures and
+        # receives result.json itself. Avoid a second blocking error dialog.
+        if ($q.action -eq 'install' -and ($restart -or $q.waitForReady -ne $true)) {
             Add-Type -AssemblyName PresentationFramework
             $message=if ($q.lang -eq 'en') {'Update could not be installed. Close games and other DXL windows, then try again. The downloaded package has been kept.'} else {'无法安装更新。请先退出游戏和其他 DXL 窗口，再重试。已下载的更新包已保留。'}
             $null=[System.Windows.MessageBox]::Show($message,'DXL Update')

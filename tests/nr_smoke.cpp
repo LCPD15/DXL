@@ -72,6 +72,20 @@ struct NrLayerTestAccess {
         nr._evaluateFeature=reinterpret_cast<void*>(&Eval);
     }
     static DXGI_FORMAT WorkingColorFormat(const DlssNrFilter& nr) { return nr._colorFormat; }
+    static void InjectFailure(DlssNrFilter& nr) { nr.Fail("isolated regression: transient NR failure"); }
+    static void CheckRecovered(const DlssNrFilter& nr) {
+        Check(nr._failureCount==0 && !nr._disabled,"successful NR frame did not reset consecutive failure count");
+    }
+    static void CheckTerminalStreak(DlssNrFilter& nr) {
+        for(int i=1;i<=8;++i) {
+            InjectFailure(nr);
+            Check(nr._failureCount==uint64_t(i),"failure streak count mismatch");
+            Check(nr._disabled==(i==8),"NR failure cutoff must remain eight consecutive failures");
+        }
+        const auto calls=nr.ModelCallCount();
+        Check(!nr.Execute({},{}),"disabled NR accepted another frame");
+        Check(nr.ModelCallCount()==calls,"disabled NR invoked the model");
+    }
 };
 }
 void* Patch(void* object, size_t i, void* hook) noexcept {
@@ -94,7 +108,7 @@ unsigned Errors(ID3D12InfoQueue* info) {
 int main(int argc, char** argv) try {
     setvbuf(stdout,nullptr,_IONBF,0);
     bool typeless=false, large=false, resetEveryFrame=false,present=false,directGuides=false,withSr=false,fenceWait=false,switchRoutes=false;
-    bool emptyCompute=false, switchLayers=false, typelessColor=false, rgba8Color=false, heaplessBindings=false;
+    bool emptyCompute=false, switchLayers=false, typelessColor=false, rgba8Color=false, heaplessBindings=false, failureStreak=false;
     float selfLayers=1.0f;
     int trueLayers=1, failLayer=0;
     bool noGuides=false,switchMotion=false,noOptical=false,switchQuality=false,debugMotion=false,selectedZero=false;
@@ -102,6 +116,7 @@ int main(int argc, char** argv) try {
         typelessColor |= !strcmp(argv[i],"--typeless-color");
         rgba8Color |= !strcmp(argv[i],"--rgba8-color");
         heaplessBindings |= !strcmp(argv[i],"--heapless-bindings");
+        failureStreak |= !strcmp(argv[i],"--failure-streak");
         if(!strncmp(argv[i],"--self-layers=",14)) selfLayers=float(atof(argv[i]+14));
         if(!strncmp(argv[i],"--true-layers=",14)) trueLayers=atoi(argv[i]+14);
         switchLayers |= !strcmp(argv[i],"--switch-layers");
@@ -370,6 +385,8 @@ int main(int argc, char** argv) try {
         const bool inspect=frame==totalFrames-1 || ((switchRoutes||switchScale||switchLayers) && (frame+1)%routeSpan==0);
         if (inspect) probe(0);
         bool ran=false;
+        const bool injectTransient=failureStreak && frame>=20 && frame<=60 && frame%5==0;
+        if(injectTransient) NrLayerTestAccess::InjectFailure(nr);
         const auto opticalBefore=nr.OpticalStatus().dispatches;
         const auto callsBefore=nr.ModelCallCount();
         if (present) {
@@ -419,6 +436,10 @@ int main(int argc, char** argv) try {
         if(fenceWait || (switchRoutes && !present)) gate.Submitted(q.Get(),1,lists);
         if(!fenceWait || frame==totalFrames-1) flush();
         Check(!Errors(info.Get()),"GPU validation errors");
+        if(injectTransient) {
+            Check(ran,"real NR frame did not recover after an isolated failure");
+            NrLayerTestAccess::CheckRecovered(nr);
+        }
         if((switchRoutes||switchScale||switchLayers) && inspect) {
             void* sample=nullptr; HR(pixels->Map(0,nullptr,&sample));
             const auto* v=static_cast<const UINT*>(sample); unsigned changed=0;
@@ -450,6 +471,10 @@ int main(int argc, char** argv) try {
     printf("Layer workload: %llu model calls, %llu processed frames, final true=%d self=%.2f\n",nr.ModelCallCount(),nr.EvaluateCount(),nr.LiveLayerCount(),settings.selfLayers);
     Check(NrLayerTestAccess::stage==0 && NrLayerTestAccess::checkedCalls==nr.ModelCallCount(),"incomplete NR chain");
     puts("PASS layer SDK contract: distinct temporal handles/bags, serial output-to-input, shared guides/reset, final output");
+    if(failureStreak) {
+        NrLayerTestAccess::CheckTerminalStreak(nr);
+        puts("PASS real NR failure recovery: nine isolated failures followed by successful GPU frames; eight consecutive failures still disable NR");
+    }
     nr.TeardownForExit(); flush();
     if(withSr) {
         NVSDK_NGX_D3D12_ReleaseFeature(srFeature); NVSDK_NGX_D3D12_DestroyParameters(srParameters);

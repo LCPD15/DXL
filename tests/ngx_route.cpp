@@ -9,14 +9,15 @@
 using namespace DXL;
 using Microsoft::WRL::ComPtr;
 static int behavior=0, nrCalls=0;
+static uint32_t nativeSlot=0;
 static NgxParameterBag nativeParams;
 static ID3D12Resource* expectedOutput=nullptr;
 static void Check(bool yes, const char* msg) { if(!yes) throw std::runtime_error(msg); }
 #include "NgxIdentityCases.h"
 static NVSDK_NGX_Result NVSDK_CONV Leaf(ID3D12GraphicsCommandList*,const NVSDK_NGX_Handle*,const NVSDK_NGX_Parameter*,PFN_NVSDK_NGX_ProgressCallback) { return NVSDK_NGX_Result_Success; }
 static NVSDK_NGX_Result NVSDK_CONV Core(ID3D12GraphicsCommandList* l,const NVSDK_NGX_Handle* h,const NVSDK_NGX_Parameter*,PFN_NVSDK_NGX_ProgressCallback c) {
-    if(behavior) ForwardConfirmedUpscaler(0,l,h,&nativeParams,c);
-    if(behavior==2) ForwardConfirmedUpscaler(0,l,h,&nativeParams,c);
+    if(behavior) ForwardConfirmedUpscaler(nativeSlot,l,h,&nativeParams,c);
+    if(behavior==2) ForwardConfirmedUpscaler(nativeSlot,l,h,&nativeParams,c);
     return NVSDK_NGX_Result_Success;
 }
 static bool Nr(ID3D12GraphicsCommandList* list, const NgxEavesdropFrame& f, uint32_t, uint32_t, uint32_t) noexcept {
@@ -54,6 +55,8 @@ int main() try {
     HANDLE event=CreateEventW(nullptr,FALSE,FALSE,nullptr); UINT64 serial=0;
     // Slot 0 is the real cached SR fixture classified by HookedGetProcAddress.
     Check(g_realEvaluate[0].load() && g_nativeUpscalerTarget[0].load(), "cached SR route not initialized");
+    // Preserve the second real cached leaf (RR) before slot 1 becomes the core.
+    g_realEvaluate[2].store(g_realEvaluate[1].load()); g_nativeUpscalerTarget[2].store(true);
     g_realEvaluate[1].store((void*)&Core); g_nativeUpscalerTarget[1].store(false);
     CommandListTracker::rootsReady.store(true); NgxEavesdrop::Get().SetPreEvaluateHook(&Nr);
     auto run=[&](int kind,int count,int bindingMode=0) { behavior=kind;
@@ -157,6 +160,27 @@ int main() try {
     run(1,12);
     Check(nrCalls == beforeFg + 36, "NR stopped after FG chain retirement");
     puts("PASS retained six-buffer FG guard: SR NR continues, real pause retained, 12/12 frames resume without chain recreation, chain retirement does not interrupt NR");
+    // Switching SR/RR can select another confirmed native export without any
+    // swapchain rebuild. An active primary still excludes competing upscalers;
+    // an abandoned export must not lock the process out of NR forever.
+    const int beforeSwitch = nrCalls;
+    while (NgxEavesdrop::Get().TakeResetFrame()) {}
+    nativeSlot = 2;
+    run(1,1);
+    Check(nrCalls == beforeSwitch, "active SR allowed a second upscaler to run NR");
+    Sleep(450);
+    run(1,12);
+    Check(nrCalls == beforeSwitch + 12, "inactive SR export permanently blocked replacement RR");
+    Check(NgxEavesdrop::Get().TakeResetFrame(), "SR/RR slot switch did not reset NR history");
+    nativeSlot = 0;
+    run(1,1);
+    Check(nrCalls == beforeSwitch + 12, "old SR immediately stole an active RR slot");
+    while (NgxEavesdrop::Get().TakeResetFrame()) {}
+    Sleep(450);
+    run(1,12);
+    Check(nrCalls == beforeSwitch + 24, "RR to SR switch did not recover NR");
+    Check(NgxEavesdrop::Get().TakeResetFrame(), "RR/SR slot switch did not reset NR history");
+    puts("PASS native export handoff: active SR/RR exclusion, stopped SR -> RR -> SR recovery, history reset on both switches");
     ComPtr<ID3D12InfoQueue> info; device.As(&info);
     for(UINT64 i=0;i<info->GetNumStoredMessages();++i) { SIZE_T n=0; info->GetMessage(i,nullptr,&n); std::vector<unsigned char> data(n); auto* m=(D3D12_MESSAGE*)data.data(); info->GetMessage(i,m,&n);
         if(m->Severity<=D3D12_MESSAGE_SEVERITY_ERROR) { puts(m->pDescription); throw std::runtime_error("API error"); } }

@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <unordered_map>
 #if defined(_MSC_VER)
@@ -22,6 +23,8 @@
 #endif
 
 namespace {
+
+constexpr UINT kSrvCapacity = 128;
 
 struct Ctx {
     bool ok = false;
@@ -42,6 +45,7 @@ struct Ctx {
     ID3D12DescriptorHeap* srvHeap = nullptr;  // shader-visible (font SRVs)
     ID3D12DescriptorHeap* rtvHeap = nullptr;  // CPU only
     uint32_t srvCount = 0;
+    std::array<bool, kSrvCapacity> srvUsed{};
     UINT srvIncrement = 0;
     D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle{};
 
@@ -89,14 +93,35 @@ void SrvAlloc(ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPTOR_HANDLE* cpu,
     D3D12_CPU_DESCRIPTOR_HANDLE c = heap->GetCPUDescriptorHandleForHeapStart();
     D3D12_GPU_DESCRIPTOR_HANDLE gp = heap->GetGPUDescriptorHandleForHeapStart();
     const UINT inc = g.srvIncrement;
-    const UINT idx = g.srvCount++;
+    UINT idx = 0;
+    while (idx < kSrvCapacity && g.srvUsed[idx]) ++idx;
+    if (idx == kSrvCapacity) {
+        if (cpu) *cpu = {};
+        if (gpu) *gpu = {};
+        D5_LOG_ERROR(L"ImGui descriptor heap exhausted: %u live textures", kSrvCapacity);
+        return;
+    }
+    g.srvUsed[idx] = true;
+    g.srvCount = (std::max)(g.srvCount, idx + 1);
     c.ptr += idx * inc;
     gp.ptr += idx * inc;
     if (cpu) *cpu = c;
     if (gpu) *gpu = gp;
 }
-void SrvFree(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE,
-             D3D12_GPU_DESCRIPTOR_HANDLE) {}
+void SrvFree(ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPTOR_HANDLE cpu,
+             D3D12_GPU_DESCRIPTOR_HANDLE gpu) {
+    const auto* heap = info ? info->SrvDescriptorHeap : nullptr;
+    if (!heap || heap != g.srvHeap || !g.srvIncrement) return;
+    const auto firstCpu = g.srvHeap->GetCPUDescriptorHandleForHeapStart().ptr;
+    const auto firstGpu = g.srvHeap->GetGPUDescriptorHandleForHeapStart().ptr;
+    if (cpu.ptr < firstCpu || gpu.ptr < firstGpu) return;
+    const auto offset = cpu.ptr - firstCpu;
+    if (offset % g.srvIncrement || gpu.ptr - firstGpu != offset) return;
+    const auto idx = offset / g.srvIncrement;
+    // ImGui retires textures after its in-flight frame delay. Our present path
+    // also fences each submission, so retired descriptors are safe to reuse.
+    if (idx < kSrvCapacity) g.srvUsed[idx] = false;
+}
 
 // ---- input swallow ----
 // A foreign subclass above ours retains a pointer to UiWndProc. Reinstalling
@@ -615,6 +640,7 @@ bool ReleaseRenderer() noexcept {
     g.rtvFormat = DXGI_FORMAT_UNKNOWN;
     g.rtvHandle = {};
     g.srvCount = 0;
+    g.srvUsed.fill(false);
     g.srvIncrement = 0;
     g.fenceValue = 0;
     g.submittedOnce = false;
@@ -710,7 +736,7 @@ bool InitOnce(ID3D12Device* device, ID3D12CommandQueue* queue,
 
     D3D12_DESCRIPTOR_HEAP_DESC shDesc{};
     shDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    shDesc.NumDescriptors = 128;
+    shDesc.NumDescriptors = kSrvCapacity;
     shDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     if (FAILED(device->CreateDescriptorHeap(&shDesc, IID_PPV_ARGS(&g.srvHeap))))
         return false;
@@ -726,6 +752,7 @@ bool InitOnce(ID3D12Device* device, ID3D12CommandQueue* queue,
     g.srvIncrement =
         device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     g.srvCount = 0;
+    g.srvUsed.fill(false);
 
     if (FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
                                               IID_PPV_ARGS(&g.allocator))) ||

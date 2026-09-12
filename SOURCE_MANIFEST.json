@@ -1,5 +1,5 @@
 {
-  "version": "0.4",
+  "version": "0.5",
   "git_history_included": false,
   "runtime_or_model_binaries_included": false,
   "files": [
@@ -9,7 +9,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "30d8732557181dbaf34b10e9e173e70a6d520f333b782cf65c252c5836c4e92c"
+      "sha256": "cc149c1c92ecf57b8375733c291cdb5ddceb11f1bc1a49cfdae40bac8e3067f2"
     },
     {
       "path": "DEPENDENCIES.md",
@@ -17,19 +17,19 @@
     },
     {
       "path": "docs/DXL-Guide-EN.docx",
-      "sha256": "87920b8184dd9f8200bee91241fa2ee801bef458c55b9c0ac2663d862a9197d2"
+      "sha256": "8e89e27f5742e5e0b7a2184a0c58b408603c33e303526a5041d9a46bcfa1ceb2"
     },
     {
       "path": "docs/DXL-Guide-EN.md",
-      "sha256": "ab4a20ddf7857dd7bba480d73c724d14e1706e40761977beff1cd3640ab5b4c4"
+      "sha256": "eeaa5be8ef000029678aec0452caa8280c24402389757e6b8cdcaaf913f3c8da"
     },
     {
       "path": "docs/DXL-Guide-ZH.docx",
-      "sha256": "08abb073f2af1c7fdc3470ba15c6616dd43ec7abb8993fb0c91c7141959715da"
+      "sha256": "367d3d4ba4ffa4810c0cd2a0d1dc34cf67e3fc33519d4eb5940530e8bb6516ff"
     },
     {
       "path": "docs/DXL-Guide-ZH.md",
-      "sha256": "ca33063c688ac5aa4cbe95f4611025f74c56a585941902d8e936e705c6c352fa"
+      "sha256": "6c5de434cdad8b26dc7855f9864af2a8d210ee3676786f964a0948ae5b8b16ad"
     },
     {
       "path": "docs/images/dxl-interface.png",
@@ -37,15 +37,15 @@
     },
     {
       "path": "docs/README_EN.md",
-      "sha256": "8ac2faada75e528521be118f96cc4729f90ec9455262e22cc73372fde69d607e"
+      "sha256": "d203589ad0e4b765eae0fdc2175cf88bd8be4804727cf82262dcd5d8a49cea45"
     },
     {
       "path": "docs/README_ZH.md",
-      "sha256": "e97a73a2fa45de4c63b030010385d21a510d28cd4153929f11fb89d9a52630cc"
+      "sha256": "29f62ef3cdfcc25481f849f0ff5770145c1d2d428de562a7341dbdd5109baccc"
     },
     {
       "path": "docs/UPDATES.md",
-      "sha256": "ef2ea964ca6dcd725eb0889ea1b5885653ca7203cc2ed3520ba48fcd385eaeb6"
+      "sha256": "96cec962f8b321237013aa6f73044b4d3054ce32759c49cf5e310ddb3048b730"
     },
     {
       "path": "icon/icon.png",
@@ -77,11 +77,11 @@
     },
     {
       "path": "README.md",
-      "sha256": "dcc54984dd9263aaa1e327f47b1b8387f13410542cef57540cc60cd7cb0900cf"
+      "sha256": "53cec2146108b1312040202a8dafc1313e9ac7ba0cc3a4d2ddb00473eabbc70f"
     },
     {
       "path": "README_ZH.md",
-      "sha256": "ab52335fd4319f18bd6332ea9d2f8215b5af4935da320f6dfaf2e5331ebda24c"
+      "sha256": "bed9e2fa65d147071d403be299502fb7825c2fcc1378a0306eff3d5d86cf95e2"
     },
     {
       "path": "scripts/audit_source.py",
@@ -101,7 +101,7 @@
     },
     {
       "path": "scripts/build_dxl.ps1",
-      "sha256": "04d8b698c9d8f6922005b40864c4ebbc2af07177ab9ec9aa21ea67e5d9ac8a62"
+      "sha256": "d0ee79185bbd3b9cac5cd02eef20f50e5d38ac8fa859c8c3408301480f68b175"
     },
     {
       "path": "scripts/build_launcher.ps1",
@@ -121,7 +121,7 @@
     },
     {
       "path": "scripts/export_source.py",
-      "sha256": "d55c6fa48c0a24a8e9409e1fcd14c414c2dae0804b04694b2adbac33860e528b"
+      "sha256": "34948502fbf5573b2185c80be3b3d68f8dd857fc62975a731c402adc6084a26b"
     },
     {
       "path": "scripts/fetch-deps.ps1",
@@ -137,7 +137,7 @@
     },
     {
       "path": "scripts/paths.ps1",
-      "sha256": "8950535258bdfc4774331eae2ec62ec6c976111dc6b4a337600bc0eeb6b0f069"
+      "sha256": "b8e3a837b13a3874f29a73531687455f1ae4cadfccb4668b5f260add749bb806"
     },
     {
       "path": "scripts/release_dxl.ps1",
@@ -149,7 +149,7 @@
     },
     {
       "path": "scripts/test-dxl-launcher.js",
-      "sha256": "28aa3bc369e5f44014e21ea55163a27682425c1e6e39f1e93cbe60c74172cd3e"
+      "sha256": "26af43ac84e0ef23cdcffefe4c59dd3d047d705d635414658e37cb7a7e521339"
     },
     {
       "path": "scripts/test-game-compatibility-browser.js",
@@ -162,6 +162,10 @@
     {
       "path": "scripts/test-injection-diagnostics.ps1",
       "sha256": "8deb5a7d882677eade9e0ce1f4567041b13c7d988578571be071eef5c6e729f7"
+    },
+    {
+      "path": "scripts/test-launcher-profile-isolation-browser.js",
+      "sha256": "92cf62c5e902fde3ac4a4cd809875426c541af4ea2380511d03f7a78b38b4176"
     },
     {
       "path": "scripts/test-nr-route-browser.js",
@@ -185,7 +189,7 @@
     },
     {
       "path": "scripts/test_core.ps1",
-      "sha256": "663edc6a47e82cad2238e4f7281eeb8280387eb8da684fa6f56f667775a5bbc8"
+      "sha256": "44cd866682071e7c636effeacde8fe4e5126cab93169e5fe4011a1b0a5e68adf"
     },
     {
       "path": "scripts/test_d3d11_fence_probe.ps1",
@@ -193,7 +197,7 @@
     },
     {
       "path": "scripts/test_injection.ps1",
-      "sha256": "97af0d45479caf5c9634b546a348d988ccd059074487cc4f96f0b40f4db80022"
+      "sha256": "807b67762dbc39bcf2ce14213ef37a7f6919c999e29c49651a9d8bb4b56f06c9"
     },
     {
       "path": "scripts/test_legacy_graphics.ps1",
@@ -204,8 +208,12 @@
       "sha256": "6802bbfce6b7d77085528d285f7b7697184e35319d7590568e7972376624000f"
     },
     {
+      "path": "scripts/test_overlay_backend.ps1",
+      "sha256": "fe6a05c6bdb982c34cf58336001cb3bb3a921f7ba2c8896d9d9806af8f8e43b7"
+    },
+    {
       "path": "scripts/test_present_hook_chain.ps1",
-      "sha256": "1821601845365969f14839b81345eac12e8c2c09cde699274388a028509361f4"
+      "sha256": "04e6da0977ccec346ee09f3357c3fd62c24c79bbcfb8c4da85429cc1320e860c"
     },
     {
       "path": "scripts/test_presentation_owner.ps1",
@@ -217,11 +225,11 @@
     },
     {
       "path": "scripts/test_update_handoff.ps1",
-      "sha256": "0fac524a067aa9e14a4181fec8fe64e1acde3e5ac1f2fd035bd7b5107e3ae790"
+      "sha256": "938cb2eae48722c4cd240bd133b48c97e5d233fe5fc573516caa1db8700673d4"
     },
     {
       "path": "scripts/test_updates.ps1",
-      "sha256": "d9c68b1d116551dd62dfb879ac1f7b13dd81c7771bd8256b923e426c0cfbed79"
+      "sha256": "e97521c8b13fb2538cbd383cbb4e8b345911702039ee5e13ddbd41cea8a1b373"
     },
     {
       "path": "scripts/test_vulkan_dlss.ps1",
@@ -233,7 +241,7 @@
     },
     {
       "path": "SOURCE_CODE.md",
-      "sha256": "756163839f45e58b6130347307f422282c1ef24980be4bd1cb99eb47b2e8aecf"
+      "sha256": "108f1adc7a6f87392266c2187fdc74fa1f039d6aefa8ab03c7a4381d7a763067"
     },
     {
       "path": "src/common/DataPaths.h",
@@ -297,7 +305,7 @@
     },
     {
       "path": "src/core/core.cpp",
-      "sha256": "b4c4a2c9d1dd952836b6b81c004e32519bd0e0405a5e0e24085035e6764e1fd2"
+      "sha256": "990896297a0cb9ff2e4e71e856b3ebf2306fdbaefff7419cb161e7cc72a0a966"
     },
     {
       "path": "src/core/D3D12Validation.h",
@@ -321,7 +329,7 @@
     },
     {
       "path": "src/core/DlssNrFilter.cpp",
-      "sha256": "e0c4a2167c67f3dbd818f9893b18ff5e235998e22dce2f0afaaf50def1bd7121"
+      "sha256": "5a8b86e2af5d64599e361526120bc4ef5ac1d1e56f71c74206caeb42cde10d0c"
     },
     {
       "path": "src/core/DlssNrFilter.h",
@@ -329,11 +337,11 @@
     },
     {
       "path": "src/core/DlssNrFilter11.cpp",
-      "sha256": "9f3b2af6e9cd07cfc5fe08fd2b7fb1e015d82af1425c02f5c30ce785fe53e530"
+      "sha256": "17d912851800d139eb4cab17f98bc469bf675ecca5c3f582453e31bb9c767590"
     },
     {
       "path": "src/core/DlssNrFilter11.h",
-      "sha256": "f87c02a64aed468b1b4dd9cd088cea13747b059f5b4a6d1d6d64d07df22ab4de"
+      "sha256": "16f14b0716e8ccbf134d7d5fc2fa6683a8f49c6160a25b37c28a6ca1019125ee"
     },
     {
       "path": "src/core/DlssSrUpscaler.cpp",
@@ -413,7 +421,7 @@
     },
     {
       "path": "src/core/NgxEavesdrop.cpp",
-      "sha256": "0c8b3af46931e7c299ac87fc28a621ad6a896d7d03712046dc097ea3c300c5f4"
+      "sha256": "4d2d917852bf392e1ca26f222a5142a81c75250a46beba68a7f7546dffb0120e"
     },
     {
       "path": "src/core/NgxEavesdrop.h",
@@ -433,7 +441,7 @@
     },
     {
       "path": "src/core/NgxSession.cpp",
-      "sha256": "05eb004b72aaea761914f6c3d9346db44d06c909e57056f61df713b820f7f41b"
+      "sha256": "ca8ad002c3ffef468a7428233ef5b43c1e27f42d5afa0137ef4bb1982eb9bc4c"
     },
     {
       "path": "src/core/NgxSession.h",
@@ -513,7 +521,7 @@
     },
     {
       "path": "src/core/ReUiBackend.cpp",
-      "sha256": "d036cc79f5f30e87db2934e3bfd8e2f8b0a695d85f0d211ae0d423a2186ddde9"
+      "sha256": "f8db2d3da4f67c30f4f1fc925162f020c4dbecabadcdc4a0934cc660daa6a4cc"
     },
     {
       "path": "src/core/ReUiBackend.h",
@@ -685,7 +693,7 @@
     },
     {
       "path": "src/ui/app.rc",
-      "sha256": "9a758a4714504cf6ac8f703d9de5295dd8079c79cd714dfdc7a1dc4fd00f4394"
+      "sha256": "af8f3dcca08154ff514d13b8ee0fea1ce5eba1e4afc2c20cb2d4f6f9e52c637c"
     },
     {
       "path": "src/ui/ExeIcon.h",
@@ -729,7 +737,11 @@
     },
     {
       "path": "src/ui/main.cpp",
-      "sha256": "e5224a499ad890baea0a5283bb5913daf95eb5fa52d992b2d93cce94976bfada"
+      "sha256": "a0b68bd06e3e16d5af07b0014ead945eabd9d82845a13ae3699a2fe920a6a0fc"
+    },
+    {
+      "path": "src/ui/ProfileCommandRouting.h",
+      "sha256": "c18537e3a274a7ddb5c6bc0d8acebc491ad54c846e4b6505a278ecceb6bb99fc"
     },
     {
       "path": "src/ui/StartupReport.h",
@@ -741,7 +753,7 @@
     },
     {
       "path": "src/ui/UpdateClient.h",
-      "sha256": "003ad4d9b7a027eecbaaf68f21cb3b4baab2b2a01cd632bae604c8ce047814aa"
+      "sha256": "7f2560ee1f5ccdd0fd61752375aba60a7353c5f953123439b27c31bf11fab7d3"
     },
     {
       "path": "src/ui/web/app-icon.png",
@@ -753,7 +765,7 @@
     },
     {
       "path": "src/ui/web/app.js",
-      "sha256": "a6a208831cce646ea11f85518f4177e27cd99f61d50eb522452d2fafd950e852"
+      "sha256": "f85734c27590766310ce2579b12afa802eda6df78b5c8940c8e2548b164ce68a"
     },
     {
       "path": "src/ui/web/i18n.js",
@@ -785,7 +797,7 @@
     },
     {
       "path": "src/updater/UpdateEngine.psm1",
-      "sha256": "16d48f03717749e0d2475cc992119e6f2335d9c8057840e51c0ad3f26be38da4"
+      "sha256": "9363285e12014a750664b4e31187a163a512fea0c3907fd324ba063327b6efb4"
     },
     {
       "path": "tests/chain_child_policy.cpp",
@@ -893,7 +905,7 @@
     },
     {
       "path": "tests/ngx_route.cpp",
-      "sha256": "9c3c87aff007bac980ced266689edbe04b98bdc029c50aa46ff055ebb43dbaa0"
+      "sha256": "949593de9765b082da7a91d5df909987a73fdd2945883c6a36a510a2600841ce"
     },
     {
       "path": "tests/NgxIdentityCases.h",
@@ -901,15 +913,19 @@
     },
     {
       "path": "tests/nr_bridge11.cpp",
-      "sha256": "21ee9c6c81115c70366ba16e2f8de8bcf1cf87846ff8bd578b5cad4f7f911467"
+      "sha256": "1160fde19cde784af92486948b74046a62b0f8f3c3742094d74467b7a4b56483"
     },
     {
       "path": "tests/nr_route.cpp",
       "sha256": "99c1f38412bea94ba4cd1d6469aa6397b4bbea391c49d503763ca75e81b48dec"
     },
     {
+      "path": "tests/nr_slot_fence.cpp",
+      "sha256": "f4a338e92b0bc5f231a3877617ebaa0ee2f7e4ba0416cbe82ac133194035e18d"
+    },
+    {
       "path": "tests/nr_smoke.cpp",
-      "sha256": "f38f2817a5da8e11f8312072ff71036d46123d09e40dc35b01c16515721fcdf2"
+      "sha256": "f34de6be777a1cb26aa8ea4bb9e0a26f74510a7d6b29887bba57909a21d0c957"
     },
     {
       "path": "tests/present_hook_chain.cpp",
@@ -977,11 +993,11 @@
     },
     {
       "path": "tests/test-imgui12.cpp",
-      "sha256": "c164c41bec54be719a483be51bda060a0bfc9edd5d6e04d40648651c341e0de2"
+      "sha256": "469510d3e98097d102a353d881372bbaf05ee91c4c4178e71deabe6ff836db85"
     },
     {
       "path": "tests/test-launcher-controls.cpp",
-      "sha256": "72429b3dbcf3ab611585a73a8ba32981ab410ec0e62a4bc3ab77041ae2cb2b05"
+      "sha256": "f0b9045aeb7fc6ab34234d1d160058eb80b73e1e9d97805a9af88834e0c2a07d"
     },
     {
       "path": "tests/test-launcher-preferences.cpp",
@@ -1009,7 +1025,7 @@
     },
     {
       "path": "tests/update_handoff.cpp",
-      "sha256": "7106030a0e02db672c1a453ded5cee51de3b581c3fbe3ee035323d5b9186fa28"
+      "sha256": "60372dc2cb3983b6d476ecb74d6301cfd629e42e419a0e3d0959f3e420d44010"
     },
     {
       "path": "tests/vulkan_dlss_probe.cpp",

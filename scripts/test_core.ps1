@@ -4,6 +4,14 @@ $ErrorActionPreference = 'Stop'
 $OutDir = Resolve-DxlOutput $OutDir
 Set-Location (Split-Path $PSScriptRoot -Parent)
 & ./scripts/build_core.ps1 -OutDir $OutDir -LibraryOnly
+if ($Smoke -or $SmokeOnly -or $BridgeOnly) {
+    # A fresh test directory must be runnable without a previous full build.
+    $nrRuntime = Join-Path $DependencyRoot 'runtime/nvngx_dlssnr.dll'
+    if (!(Test-Path -LiteralPath $nrRuntime -PathType Leaf)) { throw "NR test runtime missing: $nrRuntime" }
+    $nrRuntimeDirectory = Join-Path $OutDir 'ngx'
+    New-Item -ItemType Directory -Force -Path $nrRuntimeDirectory | Out-Null
+    Copy-Item -LiteralPath $nrRuntime -Destination (Join-Path $nrRuntimeDirectory 'nvngx_dlssnr.dll') -Force
+}
 New-Item -ItemType Directory -Path "$OutDir/obj/tests" -Force | Out-Null
 $flags = @('/nologo','/O2','/MT','/EHsc','/std:c++20','/utf-8','/W3','/D_CRT_SECURE_NO_WARNINGS',
     '/DUNICODE','/D_UNICODE','/DNOMINMAX','/DWIN32_LEAN_AND_MEAN','/Isrc/core','/Isrc/common','/Ithird_party/minhook/include',
@@ -40,6 +48,11 @@ if ($LASTEXITCODE) { throw 'Typeless color SRV regression failed' }
 Build-Test 'gpu_compat' @('src/core/CommandListTracker.cpp','src/core/ComputePasses.cpp')
 & "$OutDir/gpu_compat.exe"
 if ($LASTEXITCODE) { throw 'GPU compatibility regression failed' }
+Build-Test 'nr_slot_fence' @('src/core/DlssNrFilter.cpp','src/core/OpticalFlow.cpp','src/core/OpticalFlowShaders.cpp',
+    'src/core/ComputePasses.cpp','src/core/CommandListTracker.cpp','src/core/FreezeWatchdog.cpp') `
+    @((Join-Path $DependencyRoot 'dlss/lib/Windows_x86_64/x64/nvsdk_ngx_s.lib'),"$OutDir/ffx_optical.lib")
+& "$OutDir/nr_slot_fence.exe"
+if ($LASTEXITCODE) { throw 'NR slot fence regression failed' }
 }
 if (!$SmokeOnly -and !$BridgeOnly) {
 # NGX route fixture also tests driver-cached .bin model identity.
@@ -71,12 +84,16 @@ if ($Smoke -or $SmokeOnly) {
     if ($LASTEXITCODE) { throw 'Typeless NR scale/layer optical regression failed' }
     & "$OutDir/nr_smoke.exe" --heapless-bindings --rgba8-color --direct-guides --colour=0
     if ($LASTEXITCODE) { throw 'Heapless real NR continuity regression failed' }
+    & "$OutDir/nr_smoke.exe" --failure-streak --no-optical
+    if ($LASTEXITCODE) { throw 'NR Evaluate consecutive-failure regression failed' }
+    & "$OutDir/nr_smoke.exe" --failure-streak --present --no-optical
+    if ($LASTEXITCODE) { throw 'NR Present consecutive-failure regression failed' }
 }
 if ($Smoke -or $SmokeOnly -or $BridgeOnly) {
     Build-Test 'nr_bridge11' @('src/core/DlssNrFilter11.cpp','src/core/DlssNrFilter.cpp','src/core/OpticalFlow.cpp',
         'src/core/OpticalFlowShaders.cpp','src/core/ComputePasses.cpp','src/core/CommandListTracker.cpp','src/core/FreezeWatchdog.cpp') `
         @('d3d10.lib','d3d11.lib',(Join-Path $DependencyRoot 'dlss/lib/Windows_x86_64/x64/nvsdk_ngx_s.lib'),"$OutDir/ffx_optical.lib")
-    & "$OutDir/nr_bridge11.exe"
+    & "$OutDir/nr_bridge11.exe" --failure-streak
     if ($LASTEXITCODE) { throw 'D3D11 NR bridge regression failed' }
     & "$OutDir/nr_bridge11.exe" --d3d10
     if ($LASTEXITCODE) { throw 'D3D10 NR bridge/state restoration regression failed' }

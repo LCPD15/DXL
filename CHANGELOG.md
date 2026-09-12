@@ -1,3 +1,19 @@
+# 0.5
+
+## 中文
+
+- 改善 NR 兼容性及渲染路径切换。
+- 修复部分退出崩溃问题，提升游戏内浮层稳定性。
+- 修复工具内调参保存及不同游戏配置之间的隔离问题。
+- 改善更新失败后的恢复。
+
+## English
+
+- Improved NR compatibility and render-path switching.
+- Fixed some crashes on exit and improved in-game overlay stability.
+- Fixed launcher NR parameter saving and isolation between game profiles.
+- Improved recovery after failed updates.
+
 # 0.4
 
 ## 中文

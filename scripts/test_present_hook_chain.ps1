@@ -30,13 +30,16 @@ New-Item -ItemType Directory -Force -Path $profileRoot | Out-Null
 $settings | ConvertTo-Json | Set-Content -LiteralPath $fixtureProfile -Encoding utf8
 $stdout=Join-Path $diagnostics ($RunLabel+'.stdout.log')
 $stderr=Join-Path $diagnostics ($RunLabel+'.stderr.log')
+$process=$null
 try {
     $arguments=@(('"'+$CorePath+'"'))
     if($CoreFirst){$arguments+='--core-first'}
     $process=Start-Process -FilePath $exe -WorkingDirectory $out -ArgumentList $arguments -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    # Retain the process handle before exit; otherwise Windows PowerShell can
+    # lose ExitCode after the native fixture has already disappeared.
+    $null=$process.Handle
     if(!$process.WaitForExit(45000)){
-        if($process.Path -and [IO.Path]::GetFullPath($process.Path) -eq [IO.Path]::GetFullPath($exe)){$process.Kill()}
         throw 'Owned presentation fixture exceeded its time bound'
     }
     $process.Refresh()
@@ -49,9 +52,18 @@ try {
     if($process.ExitCode -ne 0){throw ('Present chain fixture failed: exit='+$process.ExitCode)}
     if(!(Select-String -LiteralPath $stdout -Pattern '^PASS stable Present' -Quiet)){throw 'Native presentation success missing'}
 } finally {
-    foreach($path in @($fixtureProfile,$params)){
-        $resolved=[IO.Path]::GetFullPath($path)
-        if(![IO.Path]::GetDirectoryName($resolved).Equals([IO.Path]::GetFullPath($profileRoot),[StringComparison]::OrdinalIgnoreCase)){throw 'Invalid fixture cleanup path'}
-        if(Test-Path -LiteralPath $resolved){Remove-Item -LiteralPath $resolved}
+    try {
+        if($process -and !$process.HasExited){
+            if(!$process.Path -or [IO.Path]::GetFullPath($process.Path) -ne [IO.Path]::GetFullPath($exe)){throw 'Refusing to terminate a process outside this fixture'}
+            $process.Kill()
+            if(!$process.WaitForExit(5000)){throw 'Owned presentation fixture did not exit after cleanup'}
+        }
+    } finally {
+        foreach($path in @($fixtureProfile,$params)){
+            $resolved=[IO.Path]::GetFullPath($path)
+            if(![IO.Path]::GetDirectoryName($resolved).Equals([IO.Path]::GetFullPath($profileRoot),[StringComparison]::OrdinalIgnoreCase)){throw 'Invalid fixture cleanup path'}
+            if(Test-Path -LiteralPath $resolved){Remove-Item -LiteralPath $resolved}
+        }
+        if($process){$process.Dispose()}
     }
 }

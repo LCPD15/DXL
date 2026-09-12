@@ -376,7 +376,6 @@ void UpdateSemanticMask() noexcept {
     if (bridge) g_state.nrFilter11.SetSemanticMaskProvider(provider);
     else g_state.nrFilter.SetSemanticMaskProvider(provider);
 }
-std::atomic<bool> g_processTerminating{false};
 void CleanupDxl() noexcept {
     StopLegacyGraphicsHooks();
     std::lock_guard<std::recursive_mutex> lock(g_nrStateMutex);
@@ -386,10 +385,7 @@ void CleanupDxl() noexcept {
     const bool evaluateIdle = EvaluateGpuGate::Get().DrainForExit();
     if (!evaluateIdle) g_state.segMask.RetainForExit();
     g_state.segMask.TeardownForExit();
-    // ExitProcess has stopped the driver's worker threads and holds the loader
-    // lock. Retain renderer objects for OS reclamation in that final fallback;
-    // ordinary game/NGX shutdown still drains and releases them normally.
-    if (!g_processTerminating.load(std::memory_order_acquire)) ReUi::Shutdown();
+    ReUi::Shutdown();
     if (evaluateIdle) {
         g_state.nrFilter11.TeardownForExit();
         g_state.nrFilter.TeardownForExit();
@@ -2369,7 +2365,7 @@ static void UiMarkSave() {
 }
 
 // 产品版本号（面板标题行下方显示）
-static const char* kUiVersion = "0.4";
+static const char* kUiVersion = "0.5";
 
 // ---- 中英双语参数说明（复用自早期插件版，参考 NVIDIA DLSS5 文章措辞）----
 static const char* UiText(const char* zh, const char* en) { return g_state.uiLanguage == 2 ? en : zh; }
@@ -4417,13 +4413,18 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
 		g_startupDiagnostics.Created(workerId, workerError);
 		if (worker) CloseHandle(worker);
 	} else if (reason == DLL_PROCESS_DETACH) {
-		g_processTerminating.store(reserved != nullptr, std::memory_order_release);
 		g_startupDiagnostics.Mark(StartupDiagnostics::ProcessDetach);
-		// 退出清理的最终兜底：main 直接 return 的进程（ExitProcess 销毁窗口
-		// 在 DLL_PROCESS_DETACH 之后，WM_NCDESTROY 路走不到）只有这里能接。
-		// RequestTeardown 幂等——前面三段（NGX Shutdown 包装/WM_NCDESTROY/
-		// 看门狗）谁先到谁清理，都到不了才轮到这里。
 		Log::WriteExitMarker(L"DETACH-marker: DllMain DLL_PROCESS_DETACH");
+		if (reserved != nullptr) {
+			// ExitProcess has stopped other threads and may already have detached
+			// NGX/the graphics driver. Calling ReleaseFeature here can access a
+			// destroyed provider session; taking its locks can also hang forever.
+			// State is process-lifetime storage, so leave final reclamation to the
+			// OS. Earlier NGX/window shutdown and dynamic unload still clean up.
+			g_teardownRequested.store(true, std::memory_order_release);
+			Log::WriteExitMarker(L"DETACH-marker: process termination; GPU/provider cleanup retained for OS");
+			return TRUE;
+		}
 		D3D12Validation::Detach();
 		RequestTeardown();
 		Log::WriteExitMarker(L"DETACH-marker: RequestTeardown done");

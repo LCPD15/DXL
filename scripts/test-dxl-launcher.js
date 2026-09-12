@@ -21,18 +21,23 @@ function element(id) {
 }
 const messages = [];
 const windowHandlers = {};
+const documentHandlers = {};
 const context = vm.createContext({
     document: { documentElement: { setAttribute() {} }, getElementById: element,
         createElement: () => element('generated' + elements.size),
-        querySelectorAll: () => [], querySelector: () => null, addEventListener() {} },
+        querySelectorAll: () => [], querySelector: () => null,
+        addEventListener(event, handler) { (documentHandlers[event] ||= []).push(handler); } },
     window: { addEventListener(event, handler) { windowHandlers[event] = handler; }, chrome: { webview: {
         postMessage(value) { messages.push(JSON.parse(value)); }, addEventListener() {} } } },
     console, structuredClone, setTimeout: () => 1, clearTimeout() {}
 });
 const webDir = path.join(__dirname, '../src/ui/web');
-vm.runInContext(fs.readFileSync(path.join(webDir, 'app.js'), 'utf8'), context);
+vm.runInContext(fs.readFileSync(process.env.DXL_LAUNCHER_TEST_SOURCE || path.join(webDir, 'app.js'), 'utf8'), context);
 const run = source => vm.runInContext(source, context);
 const post = (type, payload) => context.onHostMessage(JSON.stringify({type, payload}));
+const inputEvent = (type, target) => { for (const handler of documentHandlers[type] || []) handler({target}); };
+const ackNr = payload => post('nrParameterEdited', {...payload, requestId: messages.findLast(m =>
+    m.type === 'editNrParameter' && m.file === payload.file && m.key === payload.key && m.value === payload.value)?.requestId});
 
 const html = fs.readFileSync(path.join(webDir, 'index.html'), 'utf8');
 assert.match(html, /<title>DXL/);
@@ -517,15 +522,15 @@ assert.equal(run("draft.profiles[2].settings.nrIntensity"),0.8);
 assert.equal(messages.some(x=>x.type==='applyProfile'),false);
 run("lastStatus={target:'a.exe',currentPid:11}; syncNrParamsFromCore({nrParamVersion:102,currentPid:11,nrParamIntensity:0.4,nrParamSkinStructure:0.6})");
 assert.equal(run("draft.profiles[1].settings.nrIntensity"),0.25,'stale core snapshot overwrote pending edit');
-post('nrParameterEdited',{file:'a.exe.json',key:'nrIntensity',value:0.25,ok:true});
+ackNr({file:'a.exe.json',key:'nrIntensity',value:0.25,ok:true});
 assert.equal(run("saved.profiles[1].settings.nrIntensity"),0.25);
 assert.equal(messages.at(-1).type,'applySettings');
 assert.equal(messages.at(-1).noReload,1);
 run("editLauncherNr({dataset:{key:'nrIntensity'},type:'range',value:'0.3'}); flushLauncherNr(); editLauncherNr({dataset:{key:'nrIntensity'},type:'range',value:'0.5'})");
-post('nrParameterEdited',{file:'a.exe.json',key:'nrIntensity',value:0.3,ok:true});
+ackNr({file:'a.exe.json',key:'nrIntensity',value:0.3,ok:true});
 assert.equal(run("nrPending.get('a.exe.json:nrIntensity').value"),0.5,'old acknowledgement consumed newer edit');
 run("flushLauncherNr()");
-post('nrParameterEdited',{file:'a.exe.json',key:'nrIntensity',value:0.5,ok:false});
+ackNr({file:'a.exe.json',key:'nrIntensity',value:0.5,ok:false});
 assert.equal(run("saved.profiles[1].settings.nrIntensity"),0.25,'failed edit was saved as successful');
 assert.match(element('panelHotkeyHint').textContent,/未保存/);
 messages.length=0;
@@ -542,3 +547,56 @@ assert.equal(specs.find(p=>p.key==='nrSkinStructure').max,1);
 assert.equal(specs.find(p=>p.key==='nrPreset').options.length,5);
 assert.equal(specs.find(p=>p.key==='nrTrueLayers').max,5);
 console.log('PASS NR editor opt-in, profile isolation, live command path, pending status/ack races, save acknowledgement and slider release');
+
+// General NR route controls and master switch must use the same visible game
+// identity as the optional editor, including when a debounce spans a switch.
+post('settings',{lang:'zh',watchGames:false,scanned:true,profiles:[
+    {id:'a',name:'A',exe:'a.exe',settings:{nrUseRealMotion:true,nrIntensity:0.25}},
+    {id:'b',name:'B',exe:'b.exe',settings:{nrUseRealMotion:true,nrIntensity:0.8}}
+]});
+run("activeId='a'; lastStatus={target:'b.exe',currentPid:22}; renderAll()");
+messages.length=0;
+inputEvent('input',{dataset:{key:'nrUseRealMotion'},type:'checkbox',checked:false,value:'on'});
+assert.equal(run("draft.profiles[0].settings.nrUseRealMotion"),false,'visible A edit was redirected to running B');
+assert.equal(run("draft.profiles[1].settings.nrUseRealMotion"),true,'running B changed while editing A');
+run("activeId='b'; renderAll(); liveApplyNow()");
+assert.deepEqual(messages.filter(m=>m.type==='applyProfile').map(m=>m.file),['a.exe.json'],
+    'debounce lost the edited profile after selection changed');
+messages.length=0;
+run("activeId='a'; renderAll()");
+inputEvent('input',{dataset:{key:'masterEnabled'},type:'checkbox',checked:true,value:'on'});
+inputEvent('change',{dataset:{key:'masterEnabled'},type:'checkbox',checked:true,value:'on'});
+assert.equal(messages.find(m=>m.type==='setMaster').file,'a.exe.json');
+assert.equal(run("draft.profiles[1].settings.masterEnabled"),undefined);
+run('persistAll()');
+assert.equal(messages.find(m=>m.type==='applySettings').noReload,1,'model save must not reload the unrelated current target');
+const knownA = run('JSON.stringify(saved.profiles[0].settings)');
+post('status',{attached:true,target:'unknown.exe',currentPid:99,nrParamVersion:999,nrParamIntensity:0.99});
+assert.equal(run('JSON.stringify(saved.profiles[0].settings)'),knownA,'unknown core snapshot overwrote the selected game');
+console.log('PASS general profile input isolation, debounce target capture, targeted master command and unknown-status isolation');
+
+run("activeId='a'; lastStatus={}; renderAll()");
+element('nrExternalEdit').checked=true;
+element('nrExternalEdit').handlers.change();
+messages.length=0;
+run("editLauncherNr({dataset:{key:'nrIntensity'},type:'range',value:'0.7'}); flushLauncherNr(); draft.theme='light'; persistAll()");
+assert.equal(run('draft.profiles[0].settings.nrIntensity'),0.7,'pending preview should remain visible');
+assert.equal(run('saved.profiles[0].settings.nrIntensity'),0.25,'unacknowledged preview leaked into durable model');
+assert.equal(messages.find(m=>m.type==='applyProfile'&&m.file==='a.exe.json').payload.nrIntensity,0.25,
+    'unacknowledged preview leaked into the flat profile');
+ackNr({file:'a.exe.json',key:'nrIntensity',value:0.7,ok:false});
+assert.equal(run('draft.profiles[0].settings.nrIntensity'),0.25,'failed edit remained as a successful preview');
+run('persistAll()');
+assert.equal(run('saved.profiles[0].settings.nrIntensity'),0.25,'later autosave committed a rejected edit');
+assert.equal(run('saved.theme'),'light','unrelated valid settings should still save');
+messages.length=0;
+run("editLauncherNr({dataset:{key:'nrIntensity'},type:'range',value:'0.3'}); flushLauncherNr()");
+const firstSameValueRequest=messages.at(-1).requestId;
+run("editLauncherNr({dataset:{key:'nrIntensity'},type:'range',value:'0.5'}); flushLauncherNr(); editLauncherNr({dataset:{key:'nrIntensity'},type:'range',value:'0.3'})");
+post('nrParameterEdited',{file:'a.exe.json',key:'nrIntensity',value:0.3,requestId:firstSameValueRequest,ok:true});
+assert.equal(run("nrPending.has('a.exe.json:nrIntensity')"),true,'older same-value reply consumed the newer unsent edit');
+run('flushLauncherNr()');
+assert.notEqual(messages.at(-1).requestId,firstSameValueRequest);
+ackNr({file:'a.exe.json',key:'nrIntensity',value:0.3,ok:true});
+assert.equal(run('saved.profiles[0].settings.nrIntensity'),0.3);
+console.log('PASS NR acknowledgement transaction: pending autosave exclusion, failed edit rollback and repeated-value reply identity');

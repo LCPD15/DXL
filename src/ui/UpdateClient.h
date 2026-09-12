@@ -17,9 +17,10 @@ void StartUpdateAction(const std::string& action, const std::string& expected = 
             std::filesystem::copy_file(ExeDir()/L"updater"/name,job/L"updater"/name);
         const auto request=job/L"request.json";
         const auto result=job/L"result.json";
-        const std::string json="{\"action\":\""+action+"\",\"current\":\"0.4\",\"cache\":"+JsonQuoted(cache.wstring())+
+        const auto ready=job/L"ready.json";
+        const std::string json="{\"action\":\""+action+"\",\"current\":\"0.5\",\"cache\":"+JsonQuoted(cache.wstring())+
             ",\"expected\":"+JsonQuoted(Utf8ToWide(expected))+",\"install\":"+JsonQuoted(ExeDir().wstring())+",\"parentPid\":"+std::to_string(GetCurrentProcessId())+
-            ",\"lang\":\""+(g_uiLang.load()==2?"en":"zh")+"\"}";
+            ",\"waitForReady\":true,\"lang\":\""+(g_uiLang.load()==2?"en":"zh")+"\"}";
         if (!WriteFileUtf8(request,json)) throw std::runtime_error("Cannot save update request");
         const auto helper=job/L"DXL-update.exe";
         auto cmd=L"\""+helper.wstring()+L"\" \""+request.wstring()+L"\"";
@@ -44,13 +45,21 @@ void StartUpdateAction(const std::string& action, const std::string& expected = 
                 throw std::runtime_error("Cannot start updater");
             CloseHandle(pi.hThread);
         }
-        if (action=="install") {
-            CloseHandle(pi.hProcess);
-            PostMessageW(g_window,WM_CLOSE,0,0);
-            return;
-        }
         const HWND window=g_window;
-        std::thread([process=pi.hProcess,result,window,action] {
+        std::thread([process=pi.hProcess,result,ready,window,action] {
+            if (action=="install") {
+                // Keep the launcher usable if validation or extraction fails. The
+                // worker requests shutdown only after the package is ready to apply.
+                bool closeRequested=false;
+                while (WaitForSingleObject(process,100)==WAIT_TIMEOUT) {
+                    if (!closeRequested && !ReadFileUtf8(ready).empty()) {
+                        closeRequested=true;
+                        PostMessageW(window,WM_CLOSE,0,0);
+                    }
+                }
+                // If closing failed or the UI was blocked, the worker times out.
+                // Keep listening so its error clears the busy state in that case.
+            }
             WaitForSingleObject(process,INFINITE); CloseHandle(process);
             auto response=ReadFileUtf8(result);
             if (response.empty()) response=action=="check"?"{\"state\":\"none\"}":"{\"state\":\"error\"}";

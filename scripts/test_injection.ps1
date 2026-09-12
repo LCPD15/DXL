@@ -37,6 +37,7 @@ $fixtureName='dxl-e2e-'+$PID+'.exe'
 $fixtureProfile=Join-Path $profileRoot ($fixtureName+'.json')
 if(Test-Path -LiteralPath $fixtureProfile){throw 'Fixture profile already exists'}
 $settings | ConvertTo-Json | Set-Content -LiteralPath $fixtureProfile -Encoding utf8
+$fixture=$null
 try {
 
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
@@ -60,6 +61,7 @@ if ($marker -ne (Join-Path $toolDir 'DXL-core.dll')) { throw 'Deployment marker 
 $stdout = Join-Path $testRoot 'target.stdout.log'
 $stderr = Join-Path $testRoot 'target.stderr.log'
 $fixture = Start-Process -FilePath $target -WorkingDirectory $gameDir -ArgumentList '--novsync --debug' -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+$null=$fixture.Handle
 if (!$fixture.WaitForExit(45000)) {
     # Only the exact fixture created above may be ended. It has its own WM_CLOSE
     # timeout; a forced stop here is failure cleanup, never a passing result.
@@ -95,6 +97,14 @@ if (!(Test-Path -LiteralPath $foreign) -or (Get-FileHash -LiteralPath $foreign).
 Write-Output 'PASS automatic shell selection, central-core early load, Present NR + optical flow + two true layers, IPC and foreign-plugin-preserving undeploy'
 
 } finally {
+    if ($fixture) {
+        if (!$fixture.HasExited -and $fixture.Path -and
+            [IO.Path]::GetFullPath($fixture.Path) -eq [IO.Path]::GetFullPath($target)) {
+            $fixture.Kill()
+            if (!$fixture.WaitForExit(5000)) { throw 'Owned injection fixture did not exit during cleanup' }
+        }
+        $fixture.Dispose()
+    }
     # Only this run's unique fixture profile; never remove real game settings.
     $resolved=[IO.Path]::GetFullPath($fixtureProfile)
     if(!$resolved.StartsWith([IO.Path]::GetFullPath($profileRoot)+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Invalid fixture cleanup path'}

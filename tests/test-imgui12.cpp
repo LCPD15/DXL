@@ -49,6 +49,32 @@ static void CheckMessages(HWND hwnd) {
     Check(!overlayCycle && gameMessages==before+2,"window message forwarded more than once");
 }
 #include "ui-cursor-regression.h"
+// Dynamic ImGui font textures can be retired and recreated while the renderer
+// stays alive. Total allocations must not consume permanently retired slots.
+static void TestDescriptorRetirement() {
+    ImGui_ImplDX12_InitInfo info{};
+    info.SrvDescriptorHeap = g.srvHeap;
+    D3D12_CPU_DESCRIPTOR_HANDLE heldCpu{};
+    D3D12_GPU_DESCRIPTOR_HANDLE heldGpu{};
+    SrvAlloc(&info, &heldCpu, &heldGpu);
+    const auto firstCpu = g.srvHeap->GetCPUDescriptorHandleForHeapStart().ptr;
+    const auto firstGpu = g.srvHeap->GetGPUDescriptorHandleForHeapStart().ptr;
+    const auto capacity = g.srvHeap->GetDesc().NumDescriptors;
+    for (unsigned i = 0; i < capacity * 3; ++i) {
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu{};
+        D3D12_GPU_DESCRIPTOR_HANDLE gpu{};
+        SrvAlloc(&info, &cpu, &gpu);
+        Check(cpu.ptr >= firstCpu && gpu.ptr >= firstGpu &&
+              (cpu.ptr-firstCpu)/g.srvIncrement < capacity &&
+              (gpu.ptr-firstGpu)/g.srvIncrement < capacity,
+              "retired ImGui descriptors exhausted the live heap");
+        Check(cpu.ptr != heldCpu.ptr && gpu.ptr != heldGpu.ptr,
+              "ImGui descriptor reuse overwrote a live texture");
+        SrvFree(&info, cpu, gpu);
+    }
+    SrvFree(&info, heldCpu, heldGpu);
+    puts("PASS ImGui descriptor retirement: 384 reuse cycles, live texture preserved");
+}
 int main() try {
     TestCursorFallback();
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);
@@ -153,6 +179,7 @@ int main() try {
             std::thread renderThread([&]{ initialized=ReUi::InitOnce(device.Get(),q,hwnd,sd.Format); });
             renderThread.join();
             Check(initialized,"ImGui queue/format initialization");
+            if (segment == 0 && frame == 0) TestDescriptorRetirement();
             if (!context) { context=g.imgui; font=g.uiFont; cursorTrampoline=reinterpret_cast<void*>(o_GetCursorPos); }
             Check(g.imgui==context && g.uiFont==font && reinterpret_cast<void*>(o_GetCursorPos)==cursorTrampoline,"renderer rebind replaced context, font or cursor hooks");
             CheckMessages(hwnd);

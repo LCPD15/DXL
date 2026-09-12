@@ -2,6 +2,7 @@
 #include "../src/ui/Hotkey.h"
 #include "../src/ui/GameListCleanup.h"
 #include "../src/ui/LaunchArguments.h"
+#include "../src/ui/ProfileCommandRouting.h"
 #include "../src/common/NrParameterEdit.h"
 #include <limits>
 #include <shellapi.h>
@@ -14,6 +15,20 @@ static void Check(bool pass, const char* message) {
 }
 int wmain() {
     using namespace DXL;
+    struct ProfileTarget { DWORD pid; std::wstring name; };
+    const std::vector<ProfileTarget> targets{{11,L"A.exe"},{22,L"B.exe"},{33,L"a.EXE"}};
+    std::vector<DWORD> commanded;
+    auto result = DispatchProfileCommand(targets, L"a.exe.json", [&](DWORD pid) {
+        commanded.push_back(pid); return pid != 33;
+    });
+    Check(commanded == std::vector<DWORD>{11,33}, "profile command cannot target another game");
+    Check(result.matched == 2 && result.succeeded == 1, "all matching instances attempted, failure preserved");
+    for (auto file : {L"default.json",L"missing.exe.json",L"A.exe.json.backup"}) {
+        commanded.clear();
+        result = DispatchProfileCommand(targets, file, [&](DWORD pid) { commanded.push_back(pid); return true; });
+        Check(commanded.empty() && !result.matched, "unmatched/default profile cannot control selected game");
+    }
+    std::puts("PASS profile-directed control: case-insensitive game identity, multiple instances, offline/default isolation and failure accounting");
     for (const auto& spec : NrEditSpecs) {
         for (double value : {spec.low, spec.high}) {
             uint32_t packed = 0; unsigned index = 0; double decoded = 0;

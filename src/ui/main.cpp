@@ -36,6 +36,7 @@
 #include "WindowState.h"
 #include "UiLanguage.h"
 #include "Hotkey.h"
+#include "ProfileCommandRouting.h"
 #include "GameListCleanup.h"
 #include "LibraryMetadata.h"
 #include "../common/Log.h"
@@ -1347,6 +1348,7 @@ void HandleUiMessage(std::string_view json) {
 	} else if (type == "editNrParameter") {
         const auto key = ExtractStringField(json, "key");
         const auto file = ExtractStringField(json, "file");
+        const auto requestId = ExtractNumberField(json, "requestId", 0);
         const double value = ExtractNumberField(json, "value", -1);
         uint32_t packed = 0;
         bool ok = IsSafeProfileFileName(file) && file != "default.json" &&
@@ -1389,6 +1391,7 @@ void HandleUiMessage(std::string_view json) {
         }
         PostToUi("{\"type\":\"nrParameterEdited\",\"payload\":{\"file\":" + JsonQuoted(Utf8ToWide(file)) +
             ",\"key\":" + JsonQuoted(Utf8ToWide(key)) + ",\"value\":" + std::to_string(value) +
+            ",\"requestId\":" + std::to_string(requestId) +
             ",\"ok\":" + (ok ? "true" : "false") + "}}");
         if (!ok) SendLog(g_uiLang.load() == 2 ? L"NR parameter was not saved. Restart the game with the updated core and try again."
             : L"NR 参数未保存，请使用更新后的核心重启游戏后重试。");
@@ -1467,9 +1470,10 @@ void HandleUiMessage(std::string_view json) {
 		// 只落盘、不叫 core 重读 —— core 刚报的就是这个值；重读会在玩家继续拖的
 		// 半路上把落盘那一下的旧值压回 core，把他正调的新值打回去（双向同步
 		// 互相覆盖的根子，用户实测）。UI 本侧的修改不带这个标记，照旧回推。
-		if (ExtractNumberField(json, "noReload") != 1 && g_status.IsOpen()) {
-			DXL::SendCommand(
-				g_status.Pid(), DXL::Ipc::CommandId::ReloadSettings);
+		if (ExtractNumberField(json, "noReload") != 1) {
+			DXL::DispatchProfileCommand(g_targets, Utf8ToWide(file), [](DWORD pid) {
+				return DXL::SendCommand(pid, DXL::Ipc::CommandId::ReloadSettings);
+			});
 		}
 	} else if (type == "setLang") {
 		// UI 切语言时报上来。宿主自己发的提示（注入成功那几条）按它选文案，
@@ -1480,9 +1484,13 @@ void HandleUiMessage(std::string_view json) {
 		// core 只在第一次读设置时取 masterEnabled（之后以 Del / 命令为准），
 		// 所以运行中只能走 SetEnabled 命令 —— 文件那份是给下一局启动用的。
 		const uint32_t on = ExtractNumberField(json, "on", 0) != 0 ? 1u : 0u;
-		if (g_status.IsOpen()) {
-			const bool ok = DXL::SendCommand(
-				g_status.Pid(), DXL::Ipc::CommandId::SetEnabled, on);
+		const auto file = ExtractStringField(json, "file");
+		if (!IsSafeProfileFileName(file)) return;
+		const auto result = DXL::DispatchProfileCommand(g_targets, Utf8ToWide(file), [on](DWORD pid) {
+			return DXL::SendCommand(pid, DXL::Ipc::CommandId::SetEnabled, on);
+		});
+		if (result.matched) {
+			const bool ok = result.succeeded == result.matched;
 			SendLog(ok ? (on ? L"总开关：ON（已推送给正在运行的游戏）"
 					: L"总开关：OFF（已推送给正在运行的游戏）")
 				: L"总开关：游戏没在跑，只存进配置（下一局启动生效）");

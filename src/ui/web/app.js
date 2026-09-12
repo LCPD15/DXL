@@ -2,6 +2,7 @@
 const nrPending = new Map();
 let nrEditTimer = 0;
 let nrEditorProfile = '';
+let nrEditSequence = 0;
 
 // UI 侧维护整个配置模型（主题、快捷键、每游戏配置文件），宿主不解析它 —— 见
 // main.cpp 顶部的说明。
@@ -541,8 +542,11 @@ function findProfileForExe(target) {
 		const fromPath = String(p.exePath || '').toLowerCase()
 			.split(/[\\/]/).pop() || '';
 		const id = String(p.id || '').toLowerCase();
-		return exe === target || fromPath === target ||
-			id === target || id === bare;
+		// An edited executable path is authoritative; stale metadata must not
+		// receive another game's runtime parameters.
+		if (fromPath) return fromPath === target;
+		if (exe) return exe === target;
+		return id === target || id === bare;
 	};
 	return draft.profiles.find(p => p.id !== 'default' && isMatch(p)) ||
 		draft.profiles.find(isMatch) || null;
@@ -584,8 +588,8 @@ function handleProxyIgnored() {
 			'放大档位在它上面只会给出裁切放大的画面。已改回 DLAA 并锁掉放大档位' +
 			'（重启游戏后生效）。想省性能只能用游戏自己的分辨率/画质设置。');
 	}
-	saved = structuredClone(draft);
-	host.post('applySettings', draft);
+	saved = confirmedModel(draft);
+	host.post('applySettings', saved, {noReload: 1});
 	writeProfileFile(profile);
 	markClean();
 	renderAll();
@@ -606,9 +610,9 @@ function onMasterToggled(on) {
 	// **只写这一份 profile，不走 persistAll。** persistAll 会给 35 份配置各写一次
 	// 文件、每次都让 core 重读一遍设置 —— 玩家正在游戏里按键，那是一串没必要的卡顿。
 	// core 启动时读的就是 profiles\<exe>.json 里的 masterEnabled，写它就够了。
-	saved = structuredClone(draft);
-	host.post('applySettings', draft);
-	writeProfileFile(profile);
+	saved = confirmedModel(draft);
+	host.post('applySettings', saved, {noReload: 1});
+	writeProfileFile(profile, true);
 	markClean();
 	renderAll();
 }
@@ -932,8 +936,8 @@ function onAttached(info) {
 		draft.profiles.push(profile);
 		appendLog('已自动为 ' + exe + ' 新建配置');
 		// 立刻落盘，别让玩家因为忘了点 Apply 而丢掉
-		saved = structuredClone(draft);
-		host.post('applySettings', draft);
+		saved = confirmedModel(draft);
+		host.post('applySettings', saved, {noReload: 1});
 		writeProfileFile(profile);
 	} else if (!profile.exePath && info.path) {
 		profile.exePath = info.path;
@@ -975,6 +979,7 @@ function parseHotkeyForCore(text) {
 // 还会在玩家继续拖的半路上把（落盘那一下的）旧值压回 core，把他正往 1.5 拖的
 // 参数打回 1.2。方向只有一个：core -> 文件 落盘即可；UI -> 文件 才带 ReloadSettings。
 function writeProfileFile(profile, noReload) {
+	profile = confirmedProfile(profile);
 	// core 只认扁平文件里的固定键名。UI 上叫 eavesdrop，core 侧的诊断键叫
 	// diagEavesdrop —— 在这里改名，别让 core 去理解 UI 的命名。
 	const flat = resolvedSettings(profile);
@@ -1640,13 +1645,10 @@ document.addEventListener('input', e => {
 	const key = el.dataset && el.dataset.key;
 	if (!key) return;
     if (NR_PARAMS.some(p => p.key === key)) { editLauncherNr(el); return; }
-	// **输入写进哪份配置，必须和 liveApplyNow 写的是同一份。**
-	// 两个各找各的（input→activeProfile / liveApply→matchProfileByTarget）时，
-	// 拖滑块把值写进 A 配置，推给 core 的却是 B 配置的旧值 —— 38 次 ReloadSettings
-	// 全带旧值的根（core-86252 / ui-48600 两局实测）。
+	// Edits belong to the visible profile. Capture that identity before any
+	// status update or target switch can change the current selection.
 	if (el.type === 'radio' && !el.checked) return;
-    const profile = (key === 'injectTiming' || key === 'fgBufferCountThreshold')
-        ? activeProfile() : matchProfileByTarget() || activeProfile();
+    const profile = activeProfile();
 	profile.settings = profile.settings || {};
 
 	if (el.type === 'checkbox') {
@@ -1671,7 +1673,7 @@ document.addEventListener('input', e => {
 	updateVisibility();
 	markDirty();
     if (key === 'injectTiming') pushWatchList();
-	scheduleLiveApply(key);
+	scheduleLiveApply(key, profile);
 });
 
 /* ---------------- 实时生效（不用每次点应用） ---------------- */
@@ -1695,6 +1697,7 @@ const LIVE_CHEAP_KEYS = new Set([
 const LIVE_EXPENSIVE_KEYS = new Set(['nrRenderScale', 'nrTrueLayers', 'nrOpticalFlowQuality']);
 
 let liveApplyTimer = 0;
+const liveApplyProfiles = new Set();
 
 // 只写 profiles\*.json + 让 core 重读，**不动 saved**。
 //
@@ -1702,17 +1705,18 @@ let liveApplyTimer = 0;
 // settings.json（也就是重启工具之后会丢）。实时生效解决的是"看效果要点五次应用"，
 // 不是替代保存。
 function liveApplyNow() {
+	if (liveApplyTimer) clearTimeout(liveApplyTimer);
 	liveApplyTimer = 0;
-	// **目标 = 正在运行的那份配置**（matchProfileByTarget），不是当前选中的。
-	// activeProfile() 和它对不上时（点了别的配置 / 附加时自动选择没生效），
-	// 拖滑块写的是另一份配置的文件，core 读的游戏那份永远只有旧值 ——
-	// 38 次 ReloadSettings 全带旧值的根（core-86252 实测）。
-	// 退回 activeProfile 只在"没有游戏在跑"时发生（改了也没人读）。
-	writeProfileFile(matchProfileByTarget() || activeProfile());
+	for (const id of liveApplyProfiles) {
+		const profile = draft.profiles.find(p => p.id === id);
+		if (profile) writeProfileFile(profile);
+	}
+	liveApplyProfiles.clear();
 }
 
-function scheduleLiveApply(key) {
+function scheduleLiveApply(key, profile = activeProfile()) {
 	if (!LIVE_CHEAP_KEYS.has(key)) return;
+	liveApplyProfiles.add(profile.id);
 	// 防抖 120ms：拖滑块时 input 每帧都来，每次都写文件 + 走一次 IPC 太浪费。
 	// 120ms 短到手感上还是"实时"，又能把一次拖动收敛成几次。
 	if (liveApplyTimer) clearTimeout(liveApplyTimer);
@@ -1723,13 +1727,15 @@ function scheduleLiveApply(key) {
 document.addEventListener('change', e => {
 	const key = e.target && e.target.dataset && e.target.dataset.key;
 	if (key && NR_PARAMS.some(p => p.key === key)) { flushLauncherNr(); return; }
-	if (key && LIVE_EXPENSIVE_KEYS.has(key)) liveApplyNow();
+	if (key && LIVE_EXPENSIVE_KEYS.has(key)) {
+		liveApplyProfiles.add(activeProfile().id); liveApplyNow();
+	}
 	// 总开关是特例：core 只在**第一次读设置**时取 masterEnabled（core.cpp 的
 	// diagnosticsRead 那段），之后以 Del / 命令为准 —— 所以写文件 +
 	// ReloadSettings 对正在跑的游戏**不生效**，运行中只能走 SetEnabled 命令。
 	// 文件那份是给下一局启动用的。
 	if (key === 'masterEnabled') {
-		host.post('setMaster', null, { on: e.target.checked ? 1 : 0 });
+		host.post('setMaster', null, { file: profileFileName(activeProfile()), on: e.target.checked ? 1 : 0 });
 	}
 });
 
@@ -2106,11 +2112,29 @@ function warnDuplicateProfileFiles() {
 	}
 }
 
+function confirmedProfile(profile) {
+	const next = structuredClone(profile);
+	// A queued NR edit is only durable after the native/core acknowledgement.
+	// Saving another setting while it is in flight must not commit its preview.
+	for (const item of nrPending.values()) {
+		if (next.id !== item.id) continue;
+		const previous = saved.profiles.find(p => p.id === item.id);
+		if (previous && Object.hasOwn(previous.settings, item.key))
+			next.settings[item.key] = previous.settings[item.key];
+		else delete next.settings[item.key];
+	}
+	return next;
+}
+function confirmedModel(model) {
+	const next = structuredClone(model);
+	next.profiles = model.profiles.map(confirmedProfile);
+	return next;
+}
 function persistAll() {
-	saved = structuredClone(draft);
-	host.post('applySettings', draft);
+	saved = confirmedModel(draft);
+	host.post('applySettings', saved, {noReload: 1});
 	// 每个配置都写一份展平文件：core 只认这些
-	for (const profile of draft.profiles) writeProfileFile(profile);
+	for (const profile of saved.profiles) writeProfileFile(profile);
 	warnDuplicateProfileFiles();
 	pushHotkeys();
 	// 配置增删改之后监控列表就变了，必须重推 —— 否则新加的游戏监控不到，
@@ -2430,9 +2454,10 @@ function syncNrParamsFromCore(s) {
 	if (!Number.isFinite(version)) return;
 	const target = String(s.currentPid || s.pid || s.target || '');
 	if (version === lastNrParamVersion && target === lastNrParamTarget) return;
+	const profile = matchProfileByTarget();
+	if (!profile) return; // Never apply an unknown game's snapshot to the selected game.
 	lastNrParamVersion = version;
 	lastNrParamTarget = target;
-	const profile = matchProfileByTarget() || activeProfile();
 	profile.settings = profile.settings || {};
 	let changed = false;
 	for (const [srcKey, dstKey] of Object.entries(NR_PARAM_SYNC_KEYS)) {
@@ -2771,7 +2796,7 @@ document.getElementById('openNgxDirBtn').addEventListener('click', () => {
 /* ---------------- 启动 ---------------- */
 
 // 版本号写在一处，别在 HTML 里硬编码（之前 HTML 里那个 v0.4.0 早就过期了）
-const APP_VERSION = 'v0.4';
+const APP_VERSION = 'v0.5';
 window.addEventListener('dxl-language-changed', () => { renderLog(); renderHotkeyHints(); renderAdvice(lastStatus); });
 document.getElementById('brandVersion').textContent = APP_VERSION;
 document.getElementById('projectLink').addEventListener('click', event => {
@@ -2828,7 +2853,8 @@ function editLauncherNr(el) {
     profile.settings[key] = value;
     const out = document.getElementById(key + 'Out');
     if (out) out.textContent = formatValue(key, value);
-    nrPending.set(profileFileName(profile) + ':' + key, {file: profileFileName(profile), key, value, id: profile.id, sent: false});
+    nrPending.set(profileFileName(profile) + ':' + key, {file: profileFileName(profile), key, value,
+        id: profile.id, requestId: ++nrEditSequence, sent: false});
     if (nrEditTimer) clearTimeout(nrEditTimer);
     if (!LIVE_EXPENSIVE_KEYS.has(key)) nrEditTimer = setTimeout(flushLauncherNr, 120);
 }
@@ -2836,15 +2862,23 @@ function flushLauncherNr() {
     if (nrEditTimer) clearTimeout(nrEditTimer); nrEditTimer = 0;
     for (const item of nrPending.values()) if (!item.sent) {
         item.sent = true;
-        host.post('editNrParameter', null, {file:item.file, key:item.key, value:Number(item.value)});
+        host.post('editNrParameter', null, {file:item.file, key:item.key, value:Number(item.value), requestId:item.requestId});
     }
 }
 function acknowledgeNrEdit(reply) {
     const token = reply.file + ':' + reply.key;
     const item = nrPending.get(token);
-    if (!item || Number(item.value) !== Number(reply.value)) return;
+    if (!item || item.requestId !== Number(reply.requestId) || Number(item.value) !== Number(reply.value)) return;
     nrPending.delete(token);
     if (!reply.ok) {
+        const profile = draft.profiles.find(p => p.id === item.id);
+        const previous = saved.profiles.find(p => p.id === item.id);
+        if (profile) {
+            if (previous && Object.hasOwn(previous.settings, item.key)) profile.settings[item.key] = previous.settings[item.key];
+            else delete profile.settings[item.key];
+        }
+        lastNrParamVersion = -1;
+        renderAll();
         const tr = window.I18N ? I18N.t : x => x;
         document.getElementById('panelHotkeyHint').textContent = tr('NR 参数未保存，请使用更新后的核心重启游戏后重试。');
         return;

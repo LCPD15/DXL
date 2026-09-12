@@ -345,13 +345,13 @@ void CaptureOnGameList(
 std::atomic<NgxEavesdrop::PreEvaluateHook> g_preEvaluateHook{ nullptr };
 std::atomic<uint64_t> g_preEvaluateFrames{ 0 };
 std::atomic<uint64_t> g_preEvaluateStateMisses{ 0 };
-// 认准一个槽位就不再换。
-//
-// 为什么必须锁定：同一个进程里可能有多条 evaluate 走这里 —— DLSS-SR 和 Ray
-// Reconstruction 的参数集都含 color+depth+mvec，筛选条件挡不住第二条。不锁定的话
-// 一帧里会把 DLSSNR 跑两遍（两套不同的输入），时域累积就废了，画面还会闪。
-// -1 = 还没认。
+// Keep one active native upscaler. A second SR/RR pass must not process the
+// temporal feature twice per frame, but a stopped SR export must not prevent a
+// game from switching to RR (or a replacement provider) for the rest of its run.
+// Selection and callback are serialized across both legacy and confirmed paths.
 std::atomic<int32_t> g_preEvaluateSlot{ -1 };
+std::mutex g_preEvaluateSlotMutex;
+uint64_t g_preEvaluateSlotLastSeenAt = 0;
 
 // **必须等游戏的 DLSS 稳定下来才能动手。**
 //
@@ -442,8 +442,19 @@ void RunPreEvaluateHook(
 		g_preEvaluateHook.load(std::memory_order_acquire);
 	if (!hook || !list) return;
 
+	std::lock_guard<std::mutex> selection(g_preEvaluateSlotMutex);
+	const auto now = GetTickCount64();
 	const int32_t locked = g_preEvaluateSlot.load(std::memory_order_relaxed);
-	if (locked >= 0 && uint32_t(locked) != slot) return;
+	const bool replacing = locked >= 0 && uint32_t(locked) != slot;
+	if (replacing) {
+		// Competing/nested calls never refresh the selected export's timestamp.
+		// Only a confirmed native SR/RR call may replace an inactive selection;
+		// the core callback still enforces the external GPU gate before NR runs.
+		if (!confirmedNativeSr || !g_preEvaluateSlotLastSeenAt ||
+			now - g_preEvaluateSlotLastSeenAt < NrRoutePolicy::NATIVE_TIMEOUT_MS) return;
+	} else if (locked >= 0 && confirmedNativeSr) {
+		g_preEvaluateSlotLastSeenAt = now;
+	}
 
 	// 等游戏自己稳定。放在锁定判断之后、状态检查之前 —— 加载期间连状态都在变，
 	// 那些"还没观察到状态"的日志本来也是这段时间刷出来的。
@@ -500,12 +511,19 @@ void RunPreEvaluateHook(
 				(unsigned)depthStateOut);
 		}
 	}
-	if (!hook(list, frame, colorStateOut, motionStateOut, depthStateOut)) {
+	if (replacing) NgxEavesdrop::Get().NoteResetFrames();
+	const bool applied = hook(list, frame, colorStateOut, motionStateOut, depthStateOut);
+	// First-time model creation can take longer than the handoff interval. Keep
+	// the selected call fresh through callback completion, including NR-off or
+	// GPU-pending frames, so a competing pass cannot steal it immediately after.
+	if (!replacing || applied) g_preEvaluateSlotLastSeenAt = GetTickCount64();
+	if (!applied) {
 		return;
 	}
 
-	if (locked < 0) {
+	if (locked < 0 || replacing) {
 		g_preEvaluateSlot.store(int32_t(slot), std::memory_order_relaxed);
+		if (replacing) D5_LOG_INFO(L"NR native export handoff: slot=%d -> %u (previous export inactive, history reset)", locked, slot);
 		D5_LOG_INFO(L"DLSS5@evaluate：认定槽位 %u 为处理点（SR 输出 %ux%u fmt=%u）",
 			slot, frame.outputWidth, frame.outputHeight, frame.outputFormat);
 	}

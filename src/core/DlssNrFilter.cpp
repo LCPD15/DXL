@@ -4,6 +4,7 @@
 #include <nvsdk_ngx.h>
 #include <nvsdk_ngx_helpers.h>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -688,13 +689,33 @@ bool DlssNrFilter::CreateCommandObjects() noexcept {
 // 规则和取舍完全同 DlssSrUpscaler::TryClaimSlot，那边有详细说明：
 // 跑在游戏的 present 线程上，所以等不到就跳过这一帧，绝不阻塞、绝不自我停用。
 bool DlssNrFilter::TryClaimSlot(Slot& slot) noexcept {
-	if (!slot.fenceValue || _fence->GetCompletedValue() >= slot.fenceValue) {
-		return true;
-	}
-	if (_fenceEvent &&
-		SUCCEEDED(_fence->SetEventOnCompletion(slot.fenceValue, _fenceEvent)) &&
-		WaitForSingleObject(_fenceEvent, SLOT_WAIT_BUDGET_MS) == WAIT_OBJECT_0) {
-		return true;
+	if (!_fence) return false;
+	auto completed = _fence->GetCompletedValue();
+	// UINT64_MAX means device removal, not completion of every pending slot.
+	if (completed == UINT64_MAX) return false;
+	if (!slot.fenceValue || completed >= slot.fenceValue) return true;
+	if (_fenceEvent) {
+		// A previous timed-out registration can signal this shared event later.
+		// Clear an old notification, then still verify the fence after every wake:
+		// ResetEvent alone cannot stop an older registration firing during Wait.
+		ResetEvent(_fenceEvent);
+		if (SUCCEEDED(_fence->SetEventOnCompletion(slot.fenceValue, _fenceEvent))) {
+			const auto start = std::chrono::steady_clock::now();
+			for (;;) {
+				completed = _fence->GetCompletedValue();
+				if (completed == UINT64_MAX) return false;
+				if (completed >= slot.fenceValue) return true;
+				const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+					std::chrono::steady_clock::now() - start).count();
+				if (elapsed >= SLOT_WAIT_BUDGET_MS) break;
+				const auto wait = WaitForSingleObject(_fenceEvent, DWORD(SLOT_WAIT_BUDGET_MS - elapsed));
+				if (wait != WAIT_OBJECT_0) {
+					completed = _fence->GetCompletedValue();
+					if (completed != UINT64_MAX && completed >= slot.fenceValue) return true;
+					break;
+				}
+			}
+		}
 	}
 
 	const uint64_t skipped = ++_skippedFrames;
@@ -2111,6 +2132,7 @@ bool DlssNrFilter::ExecuteOnList(
 			}
 			CommandListTracker::Restore(list, savedState);
 			D5_STAGE(NrEvalExit);
+			_failureCount = 0;
 			++_evaluateCount;
 			_lastBlock = uint32_t(Ipc::NrAtEvaluateBlock::None);
 			return true;
@@ -2222,6 +2244,9 @@ bool DlssNrFilter::ExecuteOnList(
 	CommandListTracker::Restore(list, savedState);
 	D5_STAGE(NrEvalExit);
 
+	// Fail() stops only a consecutive failure streak. Isolated transient
+	// failures must not accumulate across otherwise successful NR frames.
+	_failureCount = 0;
 	++_evaluateCount;
 	// 第一帧跑完就把"它问了什么我们没给"倒出来 —— 这时候 snippet 已经把它想读的键
 	// 全问过一遍了
@@ -3198,6 +3223,7 @@ bool DlssNrFilter::Execute(
 	slot.fenceValue = ++_fenceValue;
 	_queue->Signal(_fence, slot.fenceValue);
 
+	if (!debugDrawn) _failureCount = 0;
 	++_evaluateCount;
 	LogParameterMisses();
 	return true;

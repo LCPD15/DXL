@@ -7,6 +7,8 @@ function Reject([scriptblock]$Action,[string]$Message) {
     Assert $rejected $Message
 }
 $root=[IO.Path]::GetFullPath($OutDir)
+$packageVersion=(Get-Item -LiteralPath $BuiltExe).VersionInfo.ProductVersion
+$null=Get-DxlVersion $packageVersion
 if (Test-Path -LiteralPath $root) { throw 'Use a new test output folder' }
 $null=New-Item -ItemType Directory -Path $root
 Assert ((Get-DxlVersion '0.10') -gt (Get-DxlVersion '0.2')) 'Numeric comparison'
@@ -42,23 +44,23 @@ foreach ($rel in $files) {
     if ($rel -eq 'DXL.exe') {Copy-Item -LiteralPath $BuiltExe -Destination $p} else {[IO.File]::WriteAllText($p,'fixture '+$rel)}
     $records += @{Path=$rel;Bytes=(Get-Item $p).Length;SHA256=(Get-FileHash $p).Hash}
 }
-$manifest=@{Version='0.2';IncludesUserSettings=$false;Files=$records}
+$manifest=@{Version=$packageVersion;IncludesUserSettings=$false;Files=$records}
 Write-DxlJson (Join-Path $fixture 'PACKAGE_MANIFEST.json') $manifest
 [IO.File]::WriteAllText((Join-Path $fixture 'SHA256SUMS.txt'),'fixture')
 $goodZip=Join-Path $root 'good.zip'
 $zip=[IO.Compression.ZipFile]::Open($goodZip,[IO.Compression.ZipArchiveMode]::Create)
 foreach ($f in Get-ChildItem $fixture -Recurse -File) {
     $rel=$f.FullName.Substring($fixture.Length+1).Replace('\','/')
-    $null=[IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip,$f.FullName,('DXL-v0.2/'+$rel))
+    $null=[IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip,$f.FullName,('DXL-v'+$packageVersion+'/'+$rel))
 }
 $zip.Dispose()
 $stage=Join-Path $root 'stage'
-$m=Expand-DxlPackage $goodZip $stage '0.2'
+$m=Expand-DxlPackage $goodZip $stage $packageVersion
 Assert ($m.Files.Count -eq $files.Count) 'Valid package rejected'
 $badZip=Join-Path $root 'bad.zip';Copy-Item $goodZip $badZip
 $zip=[IO.Compression.ZipFile]::Open($badZip,[IO.Compression.ZipArchiveMode]::Update)
-$null=$zip.CreateEntry('DXL-v0.2/../../escape.txt');$zip.Dispose()
-Reject {Expand-DxlPackage $badZip (Join-Path $root 'bad-stage') '0.2'} 'Zip traversal accepted'
+$null=$zip.CreateEntry('DXL-v'+$packageVersion+'/../../escape.txt');$zip.Dispose()
+Reject {Expand-DxlPackage $badZip (Join-Path $root 'bad-stage') $packageVersion} 'Zip traversal accepted'
 $target=Join-Path $root 'target';$null=New-Item -ItemType Directory -Path $target
 [IO.File]::WriteAllText((Join-Path $target 'DXL.exe'),'old executable')
 [IO.File]::WriteAllText((Join-Path $target 'keep.txt'),'unrelated data')
@@ -99,5 +101,15 @@ Write-DxlJson $request @{cache=$cache;current='0.1';action='download';expected='
 Invoke-DxlUpdate $request
 Assert ((Read-DxlJson (Join-Path $job 'result.json')).state -eq 'error') 'Truncated download accepted'
 Assert (!(Test-Path -LiteralPath $archive)) 'Failed download promoted to installable package'
+Assert (!(Test-Path -LiteralPath ($archive+'.part'))) 'Truncated download left a partial package'
+& $module {function script:Save-DxlDownload([string]$Url,[string]$Path,[long]$ExpectedSize) {[IO.File]::WriteAllText($Path,'partial network transfer');throw 'Network interrupted fixture'}}
+Invoke-DxlUpdate $request
+Assert ((Read-DxlJson (Join-Path $job 'result.json')).state -eq 'error') 'Network interruption was not reported'
+Assert (!(Test-Path -LiteralPath ($archive+'.part'))) 'Network failure left a partial package'
+Write-DxlJson $request @{cache=$cache;current='0.1';action='install';expected='0.2';waitForReady=$true;install=$target;parentPid=$PID;lang='en'}
+Invoke-DxlUpdate $request
+Assert ((Read-DxlJson (Join-Path $job 'result.json')).state -eq 'error') 'Missing-cache installation was not rejected'
+Assert (!(Test-Path -LiteralPath (Join-Path $job 'ready.json'))) 'Failed preflight requested launcher shutdown'
 Write-Output 'PASS updater: versions, offline cache, quiet no-update, expiry, corrupt ZIP, traversal, rollback, locked files, valid install and user-file preservation'
 Write-Output 'PASS download lifecycle: remote offer, verified download, deferred offline install, version-consent binding and interrupted download rejection'
+Write-Output 'PASS preflight: missing cache returns an error without requesting launcher shutdown; interrupted downloads remove partial files'

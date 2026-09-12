@@ -19,6 +19,24 @@ using Microsoft::WRL::ComPtr;
 using namespace DXL;
 static void Check(bool ok, const char* message) { if (!ok) throw std::runtime_error(message); }
 static void HR(HRESULT hr) { if (FAILED(hr)) { printf("HRESULT %08X\n", unsigned(hr)); throw std::runtime_error("D3D bridge operation"); } }
+namespace DXL {
+struct NrBridgeFailureTestAccess {
+    static void InjectFailure(DlssNrFilter11& nr) { nr.Fail("isolated regression: transient bridge failure"); }
+    static void CheckRecovered(const DlssNrFilter11& nr) {
+        Check(nr._failureCount==0 && !nr._disabled,"successful bridge frame did not reset consecutive failure count");
+    }
+    static void CheckTerminalStreak(DlssNrFilter11& nr) {
+        for(unsigned i=1;i<=8;++i) {
+            InjectFailure(nr);
+            Check(nr._failureCount==i,"bridge failure streak count mismatch");
+            Check(nr._disabled==(i==8),"bridge failure cutoff must remain eight consecutive failures");
+        }
+        const auto calls=nr.Filter12ForStatus().ModelCallCount();
+        Check(!nr.Execute(nullptr,{}),"disabled bridge accepted another frame");
+        Check(nr.Filter12ForStatus().ModelCallCount()==calls,"disabled bridge invoked the model");
+    }
+};
+}
 // Native D3D10 state and rendering remain usable after every bridge call.
 // A false occlusion predicate is intentionally bound during NR; the bridge's
 // private state must not inherit it or its copies would silently be skipped.
@@ -93,8 +111,8 @@ struct Game10State {
     }
 };
 int main(int argc,char** argv) try {
-    bool native10=false,singleThreaded=false;
-    for(int i=1;i<argc;++i){native10|=std::string(argv[i])=="--d3d10";singleThreaded|=std::string(argv[i])=="--single-threaded";}
+    bool native10=false,singleThreaded=false,failureStreak=false;
+    for(int i=1;i<argc;++i){native10|=std::string(argv[i])=="--d3d10";singleThreaded|=std::string(argv[i])=="--single-threaded";failureStreak|=std::string(argv[i])=="--failure-streak";}
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
     _set_error_mode(_OUT_TO_STDERR); setvbuf(stdout, nullptr, _IONBF, 0);
     ComPtr<ID3D12Debug> debug; HR(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))); debug->EnableDebugLayer();
@@ -146,13 +164,17 @@ int main(int argc,char** argv) try {
             else context->UpdateSubresource(image.Get(), 0, nullptr, source.data(), width * 4, 0);
             if(game10)game10->Bind();
             const auto before = filter->Filter12ForStatus().ModelCallCount();
+            const bool injectTransient=failureStreak && frame>=4 && frame%4==0;
+            if(injectTransient) NrBridgeFailureTestAccess::InjectFailure(*filter);
             const bool ran = filter->Execute(image.Get(), settings);
             if(game10)game10->Verify();
             if (ran) {
                 ++ranSegment; ++totalRan;
                 Check(filter->Filter12ForStatus().ModelCallCount() - before == settings.trueLayers,
                     "D3D11 bridge layer count mismatch");
+                if(injectTransient) NrBridgeFailureTestAccess::CheckRecovered(*filter);
             }
+            if(injectTransient) Check(ran,"real bridge frame did not recover after an isolated failure");
             // Leave each segment's tail buffered/in flight. The next resize,
             // or final explicit teardown, must itself flush and retire it.
             if (frame == 15) {if(native10)device10->SetPredication(nullptr,FALSE);continue;}
@@ -174,6 +196,10 @@ int main(int argc,char** argv) try {
         Check(ranSegment >= 12, filter->LastError());
         printf("Bridge segment %u passed: %ux%u trueLayers=%d self=%.2f scale=%.2f frames=%u\n",
             segment, width, height, settings.trueLayers, settings.selfLayers, settings.renderScale, ranSegment);
+    }
+    if(failureStreak) {
+        NrBridgeFailureTestAccess::CheckTerminalStreak(*filter);
+        puts("PASS real NR bridge failure recovery: isolated failures reset on success; eight consecutive failures still disable the bridge");
     }
     if(game10)game10->Bind();
     Check(filter->TeardownForExit(), "bridge exit did not retire GPU work");

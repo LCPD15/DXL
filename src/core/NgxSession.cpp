@@ -13,7 +13,7 @@ namespace {
 // 用自己的 project ID 而不是抄别人的。NGX 用它做 CMS/白名单映射，
 // 借用别人的 ID 是这次调查里在 Magpie 侧看到的做法，不适合一个新项目。
 constexpr char PROJECT_ID[] = "b7e4f2a1-6c39-4d58-9a2e-1f0c7d38b45a";
-constexpr char ENGINE_VERSION[] = "DXL-0.4.0";
+constexpr char ENGINE_VERSION[] = "DXL-0.5.0";
 
 // NGX 要一个可写目录放它自己的日志和缓存
 std::filesystem::path NgxDataDir() noexcept {

@@ -460,6 +460,9 @@ bool DlssNrFilter11::Execute(
 		Fail("D3D11 copy-out fence Signal failed");
 		return false;
 	}
+	// A complete copy-in -> NR -> copy-out submission ends a transient streak.
+	// Keep _disabled and _bridgeSyncFailed latched for their existing hard-stop paths.
+	_failureCount = 0;
 	++_evaluateCount;
 	return true;
 }
