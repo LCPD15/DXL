@@ -373,6 +373,7 @@ bool DlssNrFilter11::Initialize(ID3D11Device* device11, HMODULE selfModule) noex
 bool DlssNrFilter11::Execute(
 	ID3D11Texture2D* backBuffer, const NrSettings& settings) noexcept {
 	if (!_initialized || _disabled || !backBuffer) return false;
+	if (!settings.enabled && !settings.grading.AnyActive()) return false;
 	ScopedBridgeContext contextScope(_context1, _state11);
 	if (!contextScope.Ready()) {
 		Fail("D3D11 bridge context state activation failed");
@@ -381,6 +382,10 @@ bool DlssNrFilter11::Execute(
 
 	D3D11_TEXTURE2D_DESC desc{};
 	backBuffer->GetDesc(&desc);
+	if (desc.SampleDesc.Count != 1 || desc.ArraySize != 1 || desc.MipLevels != 1) {
+		_lastError = "The D3D11 bridge requires a resolved single-frame texture";
+		return false;
+	}
 	// 尺寸/格式变了重建共享纹理（fence 也重建——它们跟尺寸无关但一起干净）
 	if (desc.Width != _width || desc.Height != _height || desc.Format != _format) {
 		if (!CreateSharedTextures(desc.Width, desc.Height, desc.Format)) {
@@ -429,14 +434,17 @@ bool DlssNrFilter11::Execute(
 	//（D3D12 的规则），滤镜内部用 barrier 迁移、出去之前还原 ——
 	// GpuImage 的进出同状态约定（见 GpuImage.h）就是为这个。
 	if (!_filter12.Prepare(_width, _height, _format, settings, NrMode::Present)) {
-		Fail("滤镜 Prepare 失败（D3D11 桥接）");
+		if (settings.enabled) Fail("滤镜 Prepare 失败（D3D11 桥接）");
 		return false;
 	}
 	const GpuImage colorSrc{ _color12, D3D12_RESOURCE_STATE_COMMON };
 	const GpuImage outDest{ _out12, D3D12_RESOURCE_STATE_COMMON };
-	if (!_filter12.Execute(colorSrc, outDest)) {
-		Fail("滤镜 Execute 失败（D3D11 桥接）");
-		return false;
+	const bool filtered = _filter12.Execute(colorSrc, outDest);
+	if (!filtered) {
+		// Missing/invalid user LUTs must not latch the entire graphics bridge off.
+		if (settings.enabled) Fail("滤镜 Execute 失败（D3D11 桥接）");
+		// Execute may have submitted partial work even when no effect was drawn.
+		// Still retire that read before D3D11 reuses the shared input next frame.
 	}
 
     // The shared input is captured inside the underlying filter's own list,
@@ -453,17 +461,18 @@ bool DlssNrFilter11::Execute(
 		Fail("D3D11 copy-out fence Wait failed");
 		return false;
 	}
-	_context->CopyResource(backBuffer, _out11);
+	if (filtered) _context->CopyResource(backBuffer, _out11);
 	_lastSharedWork = 2 * v;
 	if (FAILED(_context4->Signal(_fence11to12_11, _lastSharedWork))) {
 		_bridgeSyncFailed = true;
 		Fail("D3D11 copy-out fence Signal failed");
 		return false;
 	}
+	if (!filtered) return false;
 	// A complete copy-in -> NR -> copy-out submission ends a transient streak.
 	// Keep _disabled and _bridgeSyncFailed latched for their existing hard-stop paths.
 	_failureCount = 0;
-	++_evaluateCount;
+	if (_filter12.IsReady()) ++_evaluateCount;
 	return true;
 }
 

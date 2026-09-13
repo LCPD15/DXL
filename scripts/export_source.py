@@ -10,11 +10,11 @@ from audit_source import audit
 
 ROOT_FILES = {".gitignore", "README.md", "README_ZH.md", "LICENSE", "CHANGELOG.md", "DEPENDENCIES.md",
               "THIRD_PARTY_NOTICES.md", "LICENSE_STATUS.md", "NRFG_OPTICAL_FLOW_NOTICES.txt", "SOURCE_CODE.md"}
-ROOT_DIRS = {"src", "scripts", "tests", "docs", "licenses"}
-VENDORS = {"imgui", "minhook", "fidelityfx", "pix", "tensorrt", "cuda-stub"}
-TEXT_SUFFIXES = {".h", ".cpp", ".c", ".hlsl", ".js", ".html", ".css", ".ps1", ".psm1", ".cmd",
+ROOT_DIRS = {"src", "scripts", "tests", "docs", "licenses", "lut", "post-processing"}
+VENDORS = {"imgui", "minhook", "fidelityfx", "pix", "tensorrt", "cuda-stub", "reshade"}
+TEXT_SUFFIXES = {".h", ".hpp", ".cpp", ".c", ".hlsl", ".fx", ".fxh", ".js", ".html", ".css", ".ps1", ".psm1", ".cmd",
                  ".py", ".md", ".txt", ".rc", ".asm", ".def", ".json"}
-ART = {"icon/icon.png", "src/ui/app.ico", "src/ui/web/app-icon.png", "src/ui/web/app-icon@2x.png"}
+ART = {"icon/icon.png", "src/ui/app.ico", "src/ui/web/app-icon.png", "src/ui/web/app-icon@2x.png", "lut/Neutral-16.png"}
 GUIDES = {"docs/DXL-Guide-ZH.docx", "docs/DXL-Guide-EN.docx", "docs/images/dxl-interface.png"}
 DEVELOPMENT_NOTES = {"docs/FRAME_GENERATION_FEASIBILITY.md", "docs/GRAPHICS_COMPAT_TESTS.md",
                      "docs/RDR2_PRESENT_RECURSION.md", "docs/STARTUP_DIAGNOSTICS.md",
@@ -57,7 +57,7 @@ def main():
         to.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(p, to)
         records.append({"path":rel.as_posix(),"sha256":hashlib.sha256(to.read_bytes()).hexdigest()})
-    (dest/"SOURCE_MANIFEST.json").write_text(json.dumps({"version":"0.5","git_history_included":False,
+    (dest/"SOURCE_MANIFEST.json").write_text(json.dumps({"version":"0.6","git_history_included":False,
         "runtime_or_model_binaries_included":False,"files":records},indent=2),encoding="utf-8")
     count, problems = audit(dest)
     if problems:

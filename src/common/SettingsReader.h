@@ -8,6 +8,8 @@
 
 #include <windows.h>
 #include "DataPaths.h"
+#include "ColorGradingParameters.h"
+#include "JsonScalar.h"
 #include <shlobj.h>
 #include <filesystem>
 #include <cwctype>
@@ -141,6 +143,12 @@ public:
 			"nrControlMaskR", "nrControlMaskG", "nrControlMaskB", "nrControlMaskA", "nrSemanticMask", "nrSemOn",
 			"nrSemBgInt", "nrSemanticDebugView", "nrSemanticFlipY", "nrSemanticFeather" }) append(key);
 		for (unsigned g = 0; g < 18; ++g) append("nrSemInt" + std::to_string(g));
+		for (const auto& entry : ColorGradingParameters) {
+			append(entry.key);
+			append(std::string(entry.key) + "Enabled");
+		}
+        for (const auto& entry : BloomParameters) append(entry.key);
+		for (const auto key : {"colorLutEnabled", "colorLutIntensity", "colorLutFile", "colorFxState", "nrProcessingEnabled"}) append(key);
 		return true;
 	}
 
@@ -196,14 +204,8 @@ public:
 
 	// 字符串值（已去引号）。相等比较用 IsString 更省事。
 	std::string GetString(std::string_view key, std::string_view fallback) const {
-		const std::string& text = TextFor(key);
-		const size_t pos = ValuePos(key);
-		if (pos == std::string::npos || text[pos] != '"') {
-			return std::string(fallback);
-		}
-		const size_t end = text.find('"', pos + 1);
-		if (end == std::string::npos) return std::string(fallback);
-		return text.substr(pos + 1, end - pos - 1);
+		std::string value;
+		return JsonScalar::Decode(RawValue(key), value) ? value : std::string(fallback);
 	}
 
 	bool IsString(std::string_view key, std::string_view expected) const {
@@ -246,7 +248,7 @@ private:
 		const std::string& text = TextFor(key);
 		const size_t pos = ValuePos(key);
 		if (pos == std::string::npos) return {};
-		const size_t end = text.find_first_of(",}\r\n", pos);
+		const size_t end = JsonScalar::End(text, pos);
 		return std::string_view(text).substr(pos,
 			(end == std::string::npos ? text.size() : end) - pos);
 	}

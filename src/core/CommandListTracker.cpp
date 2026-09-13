@@ -219,9 +219,11 @@ ResetFn originalReset = nullptr;
 HRESULT STDMETHODCALLTYPE TrackReset(ID3D12GraphicsCommandList* list, ID3D12CommandAllocator* alloc, ID3D12PipelineState* pso) {
     const HRESULT hr = originalReset(list, alloc, pso);
     if (SUCCEEDED(hr)) {
+        // Observers retire discarded upload caches before the gate admits a
+        // new recording that may reuse the same filter resources.
+        CommandListTracker::NotifyResetObserver(list);
         EvaluateGpuGate::Get().Reset(list);
         NrRouteProbe::Get().Reset(list);
-        CommandListTracker::NotifyResetObserver(list);
         CommandListTracker::Get().NoteReset(list);
         CommandListTracker::Get().NotePipelineState(list, pso);
     }

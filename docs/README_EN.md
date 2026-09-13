@@ -1,12 +1,12 @@
 # DXL — DLSS eXtended Loader
 
-**English** | [简体中文](README_ZH.md) · **Version 0.5**
+**English** | [简体中文](README_ZH.md) · **Version 0.6**
 
 DXL (DLSS eXtended Loader) expands on my previous RE DLSS5 Load Mod. It aims to make DLSS NR as easy as possible to enable across games. In supported games, it can use native motion vectors and work with frame generation for higher-quality results. Compatibility varies by game.
 
 [Previous mod on GitHub](https://github.com/LCPD15/RE_DLSS5_Load_Mod) · [Previous mod on Nexus Mods](https://www.nexusmods.com/onimushawayofthesword/mods/32) · [DXL project](https://github.com/LCPD15/DXL)
 
-[Download the complete package](https://github.com/LCPD15/DXL/releases/latest) · [English online guide](https://github.com/LCPD15/DXL/blob/v0.5/docs/DXL-Guide-EN.md)
+[Download the complete package](https://github.com/LCPD15/DXL/releases/latest) · [English online guide](https://github.com/LCPD15/DXL/blob/v0.6/docs/DXL-Guide-EN.md)
 
 ## Features
 
@@ -36,7 +36,7 @@ Requires Windows x64, a compatible NVIDIA RTX GPU and Microsoft WebView2 Runtime
 
 ## Game shortcuts
 
-Del: toggle NR. End: toggle the panel. Alt + F8: try loading into the current game window. Esc or the panel’s × closes the panel. Change bindings in Global settings.
+Del: toggle effects. End: toggle the panel. Alt + F8: try loading into the current game window. Esc or the panel’s × closes the panel. Change bindings in Global settings.
 
 If loading has no effect or startup fails, exit the game and retry in Compatibility mode. This may miss native DLSS data. For frame generation, enable in-game DLSS upscaling and try Auto or Early first.
 
@@ -58,13 +58,30 @@ Press End, change one setting at a time in the same scene, then press Del to com
 
 For better performance, set True NR Layers to 1 first, then lower NR Render Scale or flow quality. Leave Auto Mask and UI Correction at their defaults to start. Set Debug view to Off for normal viewing.
 
+## Color grading and filters
+
+Press End and select **Color Grading** beside **DLSSNR**. Enable switches sit next to their parameter values. Reset restores only the default value and keeps the switch state. Settings are saved per game; disabled effects skip processing.
+
+Basic grading provides exposure, contrast, saturation, temperature, tint, shadows, midtones and highlights at the game-image stage. On the native SR route this is usually before game UI, and later game exposure or tone mapping may affect the result.
+
+LUTs, sharpening, bloom, vignette, film grain, monochrome and custom effects process the final image, including game UI. Post-processing works independently of NR and its menu pauses when a safe presentation route is available. Frame-generation compatibility safeguards still apply.
+
+Sharpening and bloom strength range from 0 to 3. Expand Bloom details for Highlight threshold (0–2; default 0.65), Threshold softness (0–1; default 0.5), Glow radius (0.25–3; default 1), Scatter (0–1; default 0.7), and Glow saturation (0–2; default 1). These controls follow the bloom enable switch; each Reset restores only its value.
+
+Put PNG lookup tables in the `lut` folder beside `DXL.exe`, then select a file, enable LUT and set its strength. The included `Neutral-16.png` is a neutral template. Save custom LUTs under new filenames; do not resize or crop them. Ordinary photos are not LUTs. See `lut/README.md` for layouts.
+
+In **Extras → Post-processing**, open `post-processing`, add native ReShade `.fx` files with their required `.fxh` includes and textures, and retain relative folders. Click **Reload custom FX** in **Color Grading → Custom FX**. Each technique has its own toggle; parameters appear automatically and save per game. Reset changes values only. Originals are neither converted nor archived, and existing DXL FX examples remain supported. DXL effects run first, followed by ReShade files in alphabetical order. See `post-processing/README.md` for usage and authoring.
+
+ReShade multi-pass rendering and external textures are supported. Game depth, motion vectors, add-ons and keyboard/mouse source uniforms are not currently provided; effects requiring them are outside this compatibility scope. Save edited examples under new filenames; updates preserve files you add yourself.
+
+
 ## Semantic Mask is experimental
 
 The complete package includes the recognition model. This feature starts off. Enable it, select categories such as People or Vehicles, then set their strength. Unselected objects use Background strength. Try Background 1 and People 0, and check alignment with Mask preview (R).
 
 Strength ranges from 0 to 1. Mask feather defaults to 8 to soften edges. Recognition may be poor, especially for anime scenes, occlusion or small objects. Turn it off if it misidentifies objects or produces unnatural edges.
 
-[Build and dependencies](https://github.com/LCPD15/DXL/blob/v0.5/DEPENDENCIES.md) · [Third-party components](THIRD_PARTY_NOTICES.md) · [Component licenses](LICENSE_STATUS.md)
+[Build and dependencies](https://github.com/LCPD15/DXL/blob/v0.6/DEPENDENCIES.md) · [Third-party components](THIRD_PARTY_NOTICES.md) · [Component licenses](LICENSE_STATUS.md)
 
 ## License
 

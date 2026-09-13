@@ -1510,6 +1510,12 @@ void HandleUiMessage(std::string_view json) {
         std::filesystem::create_directories(folder, ec);
         if (ec) SendLog(L"无法创建语义扩展文件夹。");
         else ShellExecuteW(g_window, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    } else if (type == "openPostProcessingFolder") {
+        const auto folder = ExeDir() / L"post-processing";
+        std::error_code ec;
+        std::filesystem::create_directories(folder, ec);
+        if (ec) SendLog(g_uiLang.load() == 2 ? L"Unable to create the post-processing folder." : L"无法创建后处理文件夹。");
+        else ShellExecuteW(g_window, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     } else if (type == "downloadSemantic") {
         const auto url = SemanticDownloadUrl();
         if (!url.empty()) ShellExecuteW(g_window, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);

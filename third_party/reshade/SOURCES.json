@@ -1,0 +1,74 @@
+[
+  {
+    "package": "reshade",
+    "repository": "crosire/reshade",
+    "revision": "18deaa52de0c425a78b329e9cb3c497281cd00ec",
+    "archive_sha256": "a448aa39bcd8be70e533b41dfd8e15f5a06660ddf824039e2530bcde9febb1d4"
+  },
+  {
+    "package": "d3d12",
+    "repository": "microsoft/DirectX-Headers",
+    "revision": "9e393d6d8a3b30dcc6f2806ef604ec16a27b0d7e",
+    "archive_sha256": "199eefdcb026c242d6bd12c85fd0ae601f031f7144c879cf9883eb1e3d0d0b2a"
+  },
+  {
+    "package": "fpng",
+    "repository": "richgel999/fpng",
+    "revision": "925796543b9d26b8edfcdcecd94c1dac280f29fc",
+    "archive_sha256": "b66cb4e415cca388d1a9cf5df208de75262b0c446a5695479792243a654bc2df"
+  },
+  {
+    "package": "glad",
+    "repository": "Dav1dde/glad",
+    "revision": "27bed1181560211b55e39a9b132fef8c5846aae5",
+    "archive_sha256": "7fa588bc498bd239cc60051fe35c0685c2bbeccba832e86aec21d3b03c486ac0"
+  },
+  {
+    "package": "imgui",
+    "repository": "ocornut/imgui",
+    "revision": "3912b3d9a9c1b3f17431aebafd86d2f40ee6e59c",
+    "archive_sha256": "943c3c8f6ef87c2616ff5545d4c50d941f29f20d23d783a8ff2f46c8a3bcfdf6"
+  },
+  {
+    "package": "jxl_simple_lossless",
+    "repository": "kampidh/simple-lossless-encoder",
+    "revision": "8dc970fc771e35239db55dfbce8f46f83f8e9b73",
+    "archive_sha256": "e974e551e9f77e7e364312355222c11413b357b30715cd31684a7e700fde61ec"
+  },
+  {
+    "package": "minhook",
+    "repository": "TsudaKageyu/minhook",
+    "revision": "8fda4f5481fed5797dc2651cd91e238e9b3928c6",
+    "archive_sha256": "d0eda11dbeef0d300a320fbc0ede64f6c03cc6f20382c2ea56d97a1bbbd21002"
+  },
+  {
+    "package": "openxr",
+    "repository": "KhronosGroup/OpenXR-SDK",
+    "revision": "288d3a7ebc1ad959f62d51da75baa3d27438c499",
+    "archive_sha256": "d44ed4203471f7ae35c139f7fc0810b6270cbf9b91010c19b071531367e8f0d2"
+  },
+  {
+    "package": "spirv",
+    "repository": "KhronosGroup/SPIRV-Headers",
+    "revision": "7845730cab6ebbdeb621e7349b7dc1a59c3377be",
+    "archive_sha256": "16c765cbe83fef487edd99889335c1879e589a9c8d42ecb1d02155ea666cb74e"
+  },
+  {
+    "package": "stb",
+    "repository": "nothings/stb",
+    "revision": "28d546d5eb77d4585506a20480f4de2e706dff4c",
+    "archive_sha256": "d96a0e20c279d975b490dc249a6025ea190d0db2308f35c0072359c876bf9eb8"
+  },
+  {
+    "package": "utfcpp",
+    "repository": "nemtrif/utfcpp",
+    "revision": "819011bb01628fe1aa2f1da9f2c842a48fd5680b",
+    "archive_sha256": "daf949154864fa974e69a79fea88216799bc00ef1f0f47fc88dee9fb33ad6965"
+  },
+  {
+    "package": "vma",
+    "repository": "GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator",
+    "revision": "1076b348abd17859a116f4b111c43d58a588a086",
+    "archive_sha256": "cdf7daac906c6ea0ea071ee755bc4005af9b7686619007b41c5c00793d7578d5"
+  }
+]

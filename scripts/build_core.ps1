@@ -30,12 +30,12 @@ $flags = @('/nologo','/O2','/Oi','/MT','/EHsc','/GR','/std:c++20','/utf-8','/W3'
     ('/I'+(Join-Path $DependencyRoot 'dlss/include')),'/Ithird_party/tensorrt/include','/Ithird_party/cuda-stub',
     '/Ithird_party/fidelityfx/sdk/include','/Ithird_party/fidelityfx/sdk/src/backends/shared',"/Fo$OutDir/obj/core/")
 $core = @('core','NgxSession','DlssSrUpscaler','SwapChainScaler','DlssNrFilter','DlssNrFilter11','SegMaskFilter',
-    'ComputePasses','CommandListTracker','DepthTracker','FreezeWatchdog','NgxCallerProbe','NgxEavesdrop',
+    'ComputePasses','ColorGrading','ReShadeBridge','CommandListTracker','DepthTracker','FreezeWatchdog','NgxCallerProbe','NgxEavesdrop',
     'ChainInject','LegacyGraphics','ReUiBackend','OpticalFlow','OpticalFlowShaders') | ForEach-Object { "src/core/$_.cpp" }
 $deps = @('third_party/imgui/imgui.cpp','third_party/imgui/imgui_draw.cpp','third_party/imgui/imgui_tables.cpp',
     'third_party/imgui/imgui_widgets.cpp','third_party/imgui/backends/imgui_impl_dx12.cpp','third_party/imgui/backends/imgui_impl_dx11.cpp',
     'third_party/minhook/src/hook.c','third_party/minhook/src/buffer.c','third_party/minhook/src/trampoline.c','third_party/minhook/src/hde/hde64.c')
 & $compiler @flags @core @deps /link /DLL "/OUT:$OutDir/DXL-core.dll" "/MAP:$OutDir/DXL-core.map" "/IMPLIB:$OutDir/DXL-core.lib" `
-    d3d11.lib d3d12.lib dxgi.lib dxguid.lib d3dcompiler.lib psapi.lib user32.lib shell32.lib ole32.lib advapi32.lib gdi32.lib `
+    d3d11.lib d3d12.lib dxgi.lib dxguid.lib d3dcompiler.lib psapi.lib user32.lib shell32.lib ole32.lib windowscodecs.lib advapi32.lib gdi32.lib `
     (Join-Path $DependencyRoot 'dlss/lib/Windows_x86_64/x64/nvsdk_ngx_s.lib') "$OutDir/ffx_optical.lib"
 if ($LASTEXITCODE) { throw "DXL core compilation failed: $LASTEXITCODE" }

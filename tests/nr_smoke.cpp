@@ -65,6 +65,9 @@ struct NrLayerTestAccess {
         return result;
     }
     static void Install(DlssNrFilter& nr,int fail) {
+        // Production graphics initialization is now independent of NR. Load
+        // the optional runtime before wrapping its actual SDK entry points.
+        Check(nr.LoadSnippet(nr._selfModule),"test NR runtime load");
         filter=&nr; failAt=fail;
         realCreate=reinterpret_cast<CreateFn>(nr._createFeature);
         realEval=reinterpret_cast<EvalFn>(nr._evaluateFeature);
@@ -108,7 +111,7 @@ unsigned Errors(ID3D12InfoQueue* info) {
 int main(int argc, char** argv) try {
     setvbuf(stdout,nullptr,_IONBF,0);
     bool typeless=false, large=false, resetEveryFrame=false,present=false,directGuides=false,withSr=false,fenceWait=false,switchRoutes=false;
-    bool emptyCompute=false, switchLayers=false, typelessColor=false, rgba8Color=false, heaplessBindings=false, failureStreak=false;
+    bool emptyCompute=false, switchLayers=false, typelessColor=false, rgba8Color=false, heaplessBindings=false, failureStreak=false, grading=false;
     float selfLayers=1.0f;
     int trueLayers=1, failLayer=0;
     bool noGuides=false,switchMotion=false,noOptical=false,switchQuality=false,debugMotion=false,selectedZero=false;
@@ -117,6 +120,7 @@ int main(int argc, char** argv) try {
         rgba8Color |= !strcmp(argv[i],"--rgba8-color");
         heaplessBindings |= !strcmp(argv[i],"--heapless-bindings");
         failureStreak |= !strcmp(argv[i],"--failure-streak");
+        grading |= !strcmp(argv[i],"--grading");
         if(!strncmp(argv[i],"--self-layers=",14)) selfLayers=float(atof(argv[i]+14));
         if(!strncmp(argv[i],"--true-layers=",14)) trueLayers=atoi(argv[i]+14);
         switchLayers |= !strcmp(argv[i],"--switch-layers");
@@ -233,6 +237,7 @@ int main(int argc, char** argv) try {
     DlssNrFilter nr; Check(nr.Initialize(d.Get(),q.Get(),GetModuleHandleW(nullptr)),nr.LastError());
     NrLayerTestAccess::Install(nr,failLayer);
     NrSettings settings{}; settings.enabled=true; settings.toneScale=4; settings.localTone=1.02f; settings.localStructure=1.02f;
+    if(grading) settings.grading.monochrome={true,1.0f};
     settings.opticalFlow=!noOptical;
     if(debugMotion) settings.debugView=NrSettings::DebugView::Motion;
     if(selectedZero) settings.useRealMotion=settings.useRealDepth=false;
@@ -282,6 +287,16 @@ int main(int argc, char** argv) try {
     };
     UINT heaplessAttempts=0, heaplessRecorded=0, heaplessStable=0, heaplessStableRecorded=0;
     for (UINT frame=0;frame<totalFrames;++frame) {
+        if(grading) {
+            // Exercise independent grading with the model suspended, then
+            // resume the same history owner. Repeat in both routes/scales.
+            const bool modelOn=frame%routeSpan<20 || frame%routeSpan>=30;
+            if(settings.enabled!=modelOn) {
+                flush();settings.enabled=modelOn;
+                Check(nr.Prepare(W,H,colorFormat,settings,present?NrMode::Present:NrMode::AtEvaluate,true),"NR plus grading on/off transition");
+                flush();printf("NR/GRADING SWITCH frame=%u NR=%d grading=1\n",frame,modelOn);
+            }
+        }
         if(switchMotion || switchQuality) {
             const bool optical=!noOptical && (!switchMotion || frame<60 || frame>=80);
             const int quality=switchQuality?int((frame/40)%3):settings.opticalQuality;
@@ -389,6 +404,7 @@ int main(int argc, char** argv) try {
         if(injectTransient) NrLayerTestAccess::InjectFailure(nr);
         const auto opticalBefore=nr.OpticalStatus().dispatches;
         const auto callsBefore=nr.ModelCallCount();
+        const auto gradingBefore=nr.GradingCount();
         if (present) {
             // Present NR must operate without any native SR initialization/evaluate.
             Check(!Errors(info.Get()),"display input validation"); HR(l->Close());
@@ -416,8 +432,9 @@ int main(int argc, char** argv) try {
         if (inspect) probe(1);
         if(ran) {
             Check(nr.ModelCallCount()==callsBefore+(debugMotion?0:nr.LiveLayerCount()),"model calls must equal true layers, independent of self layers");
+            if(grading)Check(nr.GradingCount()==gradingBefore+1,"one grading pass must follow every processed frame");
             const auto opticalAfter=nr.OpticalStatus();
-            const bool expectOptical=settings.opticalFlow && (selectedZero || (present?(switchRoutes||omitMotion):omitMotion));
+            const bool expectOptical=settings.enabled && settings.opticalFlow && (selectedZero || (present?(switchRoutes||omitMotion):omitMotion));
             Check(opticalAfter.dispatches==opticalBefore+(expectOptical?1u:0u),"optical workload was not gated by native motion/checkbox");
             Check(opticalAfter.active==expectOptical,"optical status disagrees with selected motion");
         }
@@ -433,6 +450,7 @@ int main(int argc, char** argv) try {
         if (!ran && frame>1 && !routeChanged && !layerChanged && !(switchScale && frame%routeSpan==0)) { printf("block=%u %s\n",nr.LastBlock(),nr.LastError()); Check(false,"NR skipped"); }
         Check(!Errors(info.Get()),"recording validation errors (not submitted)");
         HR(l->Close()); ID3D12CommandList* lists[]{l.Get()}; q->ExecuteCommandLists(1,lists);
+        nr.NotifyGradingSubmitted(1,lists);
         if(fenceWait || (switchRoutes && !present)) gate.Submitted(q.Get(),1,lists);
         if(!fenceWait || frame==totalFrames-1) flush();
         Check(!Errors(info.Get()),"GPU validation errors");
@@ -469,6 +487,7 @@ int main(int argc, char** argv) try {
     Check(changed>0 && nonfinite==0,"NR output has no effect or contains nonfinite pixels");
     printf("Optical workload: %llu dispatches; native-priority / checkbox checks passed\n",nr.OpticalStatus().dispatches);
     printf("Layer workload: %llu model calls, %llu processed frames, final true=%d self=%.2f\n",nr.ModelCallCount(),nr.EvaluateCount(),nr.LiveLayerCount(),settings.selfLayers);
+    if(grading) {Check(nr.GradingCount()>nr.EvaluateCount(),"standalone grading frames were not recorded");printf("Grading workload: %llu frames including NR-off spans\n",nr.GradingCount());}
     Check(NrLayerTestAccess::stage==0 && NrLayerTestAccess::checkedCalls==nr.ModelCallCount(),"incomplete NR chain");
     puts("PASS layer SDK contract: distinct temporal handles/bags, serial output-to-input, shared guides/reset, final output");
     if(failureStreak) {

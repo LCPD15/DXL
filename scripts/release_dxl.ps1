@@ -11,14 +11,15 @@ if ((Split-Path -Leaf $OutDir) -notmatch ('(?<!\d)'+[regex]::Escape($version)+'(
 $out=Resolve-DxlOutput $OutDir
 if ($source.Equals($out,[StringComparison]::OrdinalIgnoreCase) -or $out.StartsWith($source+'\',[StringComparison]::OrdinalIgnoreCase)) { throw 'Choose a separate release destination.' }
 if ((Test-Path -LiteralPath $out) -and @(Get-ChildItem -LiteralPath $out -Force).Count) { throw 'Release destination must be empty.' }
-$assets=@('DXL.exe','DXL-core.dll','DXL-inject.exe',
+$assets=@('DXL.exe','DXL-core.dll','DXL-ReShade.dll','DXL-inject.exe',
  'DXL-update.exe','updater/Update.ps1','updater/UpdateEngine.psm1',
  'shell/d3d12.dll','shell/d3d11.dll','shell/dxgi.dll','shell/xinput1_4.dll',
  'ngx/nvngx_dlssnr.dll','ngx/nvngx_dlss.dll','ngx/nvngx_dlssg.dll',
  'extensions/semantic/nvinfer_lean_11.dll','extensions/semantic/models/yolo11n-seg.plan',
  'web/index.html','web/app.js','web/updates.js','web/style.css','web/i18n.js','web/app-icon.png','web/app-icon@2x.png',
  'README_ZH.md','README_EN.md','CHANGELOG.md','THIRD_PARTY_NOTICES.md','LICENSE_STATUS.md','LICENSE','SOURCE_CODE.md','UPDATES.md',
- 'DXL-Guide-ZH.docx','DXL-Guide-EN.docx')
+ 'DXL-Guide-ZH.docx','DXL-Guide-EN.docx','lut/Neutral-16.png','lut/README.md',
+ 'post-processing/01-Sepia.fx','post-processing/02-Letterbox.fx','post-processing/ReShade.fxh','post-processing/ReShadeUI.fxh','post-processing/README.md')
 $assets += Get-ChildItem -LiteralPath (Join-Path $source 'licenses') -File | ForEach-Object {'licenses/'+$_.Name}
 foreach ($relative in $assets) {
  $from=Join-Path $source $relative

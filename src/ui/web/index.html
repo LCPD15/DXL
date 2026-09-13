@@ -101,7 +101,16 @@
 				</section>
 
                 <section class="page" data-page="extras">
-                    <div class="page-head span-all"><h1>额外功能</h1><p class="page-sub">完整包已集成以下实验性功能，可在游戏内按需启用。</p></div>
+                    <div class="page-head span-all"><h1>额外功能</h1><p class="page-sub">在游戏内按需启用，设置按游戏保存。</p></div>
+                    <div class="card span-all">
+                        <h2>后处理</h2>
+                        <p class="card-note">LUT、滤镜与自定义效果在最终画面上处理，也会影响游戏 UI。</p>
+                        <p>支持 ReShade 和 DXL 格式的 .fx。将效果及其 .fxh、纹理一起放入后处理文件夹，在游戏内“调色”页启用和调整，按游戏保存。</p>
+                        <div class="row-field">
+                            <button class="btn btn-primary" id="openPostProcessingFolder">打开后处理文件夹</button>
+                        </div>
+                        <p class="hint">文件夹内附有使用和制作说明。自定义 FX 默认关闭；需要深度、插件或特殊输入的效果暂不支持。</p>
+                    </div>
                     <div class="card span-all">
                         <h2>语义 Mask（试验）</h2>
                         <p class="card-note">通过语义识别给NR输入蒙板控制不同物体的NR强度。</p>

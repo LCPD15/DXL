@@ -2841,7 +2841,7 @@ document.getElementById('openNgxDirBtn').addEventListener('click', () => {
 /* ---------------- 启动 ---------------- */
 
 // 版本号写在一处，别在 HTML 里硬编码（之前 HTML 里那个 v0.4.0 早就过期了）
-const APP_VERSION = 'v0.5';
+const APP_VERSION = 'v0.6';
 window.addEventListener('dxl-language-changed', () => { renderLog(); renderHotkeyHints(); renderAdvice(lastStatus); });
 document.getElementById('brandVersion').textContent = APP_VERSION;
 document.getElementById('projectLink').addEventListener('click', event => {
@@ -2867,6 +2867,7 @@ function renderExtensions(info) {
 }
 document.getElementById('downloadSemantic').addEventListener('click', () => host.post('downloadSemantic'));
 document.getElementById('openSemanticFolder').addEventListener('click', () => host.post('openSemanticFolder'));
+document.getElementById('openPostProcessingFolder').addEventListener('click', () => host.post('openPostProcessingFolder'));
 document.getElementById('refreshExtensions').addEventListener('click', () => host.post('getExtensions'));
 host.post('uiReady', null);
 

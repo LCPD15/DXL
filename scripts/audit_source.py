@@ -8,7 +8,7 @@ DENIED_SUFFIXES = {".dll", ".exe", ".lib", ".obj", ".pdb", ".map", ".bin", ".pt"
 DENIED_DIRS = {"build", "runtime", "models", "diagnostics", "screenshots", "captures",
                "profiles", "user-data", "prototypes", ".claude", ".codex", "__pycache__"}
 ART = {"icon/icon.png", "src/ui/app.ico", "src/ui/web/app-icon.png", "src/ui/web/app-icon@2x.png",
-       "docs/images/dxl-interface.png"}
+       "docs/images/dxl-interface.png", "lut/Neutral-16.png"}
 MEDIA = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".ico", ".mp4", ".ppm"}
 PATTERNS = {
     "personal Windows home": re.compile(r"[A-Za-z]:[\\/]+Users[\\/]+(?!Public\b|Default\b)[^\\/\s\"']+", re.I),
@@ -17,7 +17,7 @@ PATTERNS = {
     "private key": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
     "GitHub credential": re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{50,})\b"),
 }
-TEXT = {".h", ".cpp", ".c", ".hlsl", ".js", ".html", ".css", ".ps1", ".psm1", ".cmd",
+TEXT = {".h", ".hpp", ".cpp", ".c", ".hlsl", ".fx", ".fxh", ".js", ".html", ".css", ".ps1", ".psm1", ".cmd",
         ".py", ".md", ".txt", ".rc", ".asm", ".def", ".json"}
 
 def audit(root):

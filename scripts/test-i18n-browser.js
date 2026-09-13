@@ -25,6 +25,13 @@ const html = process.argv[2] || path.join(source, 'src/ui/web/index.html');
             assert.equal(await page.evaluate(()=>I18N.lang()),expected);
             const persisted=await page.evaluate(()=>testMessages.filter(m=>m.type==='applySettings'));
             if(saved==='auto') assert.ok(persisted.some(m=>m.payload?.lang===expected), 'first resolved language is saved');
+            await page.evaluate(() => showPage('extras'));
+            await page.locator('#openPostProcessingFolder').click();
+            assert.ok((await page.evaluate(()=>testMessages)).some(m=>m.type==='openPostProcessingFolder'));
+            const postText = await page.locator('#openPostProcessingFolder').locator('..').locator('..').innerText();
+            assert.match(postText, /DXL.*\.fx/);
+            assert.match(postText, /ReShade.*\.fx/);
+            if(expected==='en') assert.doesNotMatch(postText, /\p{Script=Han}/u, 'Post-processing card is entirely English');
             await page.evaluate(()=>{
                 onHostMessage(JSON.stringify({type:'hotkeysRegistered',payload:{toggleInject:'Ctrl + F10'}}));
                 showPage('profile');

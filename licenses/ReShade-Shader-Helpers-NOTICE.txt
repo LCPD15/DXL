@@ -1,0 +1,12 @@
+ReShade.fxh is included unmodified from:
+https://github.com/crosire/reshade-shaders/blob/6db142b4b1a05c764222e5b0bd9a644b7ccfe1dc/Shaders/ReShade.fxh
+
+The source file declares SPDX-License-Identifier: CC0-1.0.
+License text: ReShade-Helpers-CC0.txt in the project's licenses folder.
+
+This header provides compatibility declarations. It is not a depth provider:
+depth-dependent effects still require a valid supplied depth texture.
+
+ReShadeUI.fxh in this package is a DXL-authored compatibility macro header under
+AGPL-3.0-or-later. It is not the upstream file. The upstream shader used by our
+GPU fixtures is downloaded unmodified to an external test directory.

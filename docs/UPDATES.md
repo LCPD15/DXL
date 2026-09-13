@@ -28,8 +28,8 @@ DXL 退出，覆盖程序文件并自动重启。预检失败时保留工具窗�
 
 ## Release packaging
 
-Publish stable tags such as `v0.5` with a `DXL-v0.5-win64.zip` asset. The ZIP must
-contain the `DXL-v0.5/` folder and the manifest produced by `release_dxl.ps1`.
+Publish stable tags such as `v0.6` with a `DXL-v0.6-win64.zip` asset. The ZIP must
+contain the `DXL-v0.6/` folder and the manifest produced by `release_dxl.ps1`.
 The updater verifies GitHub's asset SHA256 digest, package manifest hashes and
 the executable's version. Pre-releases, source/model archives and older/equal
 versions are not installation candidates. Keep the updater executable and scripts

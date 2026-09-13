@@ -467,6 +467,8 @@ DlssNrFilter::~DlssNrFilter() {
 	}
 	DestroyFeature();
 	ReleaseTextures();
+	SafeRelease(_gradingInput);
+	SafeRelease(_gradingOutput);
 	// 查询堆和回读缓冲也归我们，别漏 —— 漏了在游戏里就是每次重建泄一份显存
 	SafeRelease(_timingHeap);
 	SafeRelease(_timingReadback);
@@ -492,7 +494,9 @@ void DlssNrFilter::Fail(const char* what) noexcept {
 /* ============================ snippet ============================ */
 
 bool DlssNrFilter::LoadSnippet(HMODULE selfModule) noexcept {
-	if (_snippet) return true;
+	if (_snippetInitialized) return true;
+	if (_snippetLoadAttempted) return false;
+	_snippetLoadAttempted = true;
 
 	// DXL keeps models beside its core DLL in ngx/, independent of each game installation.
 	wchar_t hostPath[MAX_PATH]{};
@@ -561,6 +565,7 @@ bool DlssNrFilter::LoadSnippet(HMODULE selfModule) noexcept {
 		UnloadSnippet();
 		return false;
 	}
+	_ownsModuleNameSpoof = true;
 
 	_getModuleFileNameSlot = FindImportSlot(_snippet, "GetModuleFileNameW");
 	if (!_getModuleFileNameSlot) {
@@ -617,8 +622,13 @@ void DlssNrFilter::UnloadSnippet() noexcept {
 		}
 		_getModuleFileNameSlot = nullptr;
 	}
-	g_originalGetModuleFileNameW.store(nullptr, std::memory_order_release);
-	g_spoofedCallerModule.store(nullptr, std::memory_order_release);
+	// A graphics-only/final-output filter must not revoke another filter's
+	// live NR identity hook when its own destructor or failed initialization runs.
+	if (_ownsModuleNameSpoof) {
+		g_originalGetModuleFileNameW.store(nullptr, std::memory_order_release);
+		g_spoofedCallerModule.store(nullptr, std::memory_order_release);
+		_ownsModuleNameSpoof = false;
+	}
 	if (_snippet) {
 		FreeLibrary(_snippet);
 		_snippet = nullptr;
@@ -632,6 +642,8 @@ void DlssNrFilter::UnloadSnippet() noexcept {
 bool DlssNrFilter::Initialize(
 	ID3D12Device* device, ID3D12CommandQueue* queue, HMODULE selfModule) noexcept {
 	_device = device;
+	_selfModule = selfModule;
+	_grading.SetModule(selfModule);
 	_queue = queue;
 	if (_queue) _queue->AddRef();
 	if (!_device || !_queue) {
@@ -646,8 +658,9 @@ bool DlssNrFilter::Initialize(
 			L"「在游戏的 DLSS 之前处理」将不可用，backbuffer 那条路不受影响",
 			_passes.LastError());
 	}
-	if (!LoadSnippet(selfModule)) return false;
-	D5_LOG_INFO(L"DlssNrFilter 已初始化 (device=%p queue=%p)", device, queue);
+	// A color-only profile must work without initializing NGX. The model is
+	// loaded lazily by Prepare only when neural rendering is requested.
+	D5_LOG_INFO(L"DXL graphics filter initialized (device=%p queue=%p); NR loads on demand", device, queue);
 	return true;
 }
 
@@ -1261,12 +1274,17 @@ bool DlssNrFilter::Prepare(
     settings.controlMaskG = MaskStrength(settings.controlMaskG);
     settings.controlMaskB = MaskStrength(settings.controlMaskB);
     settings.controlMaskA = MaskStrength(settings.controlMaskA);
-	if (_disabled || !settings.enabled || !width || !height) return false;
+	if (_disabled || !width || !height || ! _device ||
+		(!settings.enabled && !settings.grading.AnyActive())) return false;
+	const bool wasRunningNr = _runNr;
+	_runNr = false;
+	_settings.grading = settings.grading;
 
 	// Legacy callers retain the mode lock. The automatic coordinator explicitly
 	// opts in only after serializing CPU work and draining the external GPU fence.
 	if (mode == NrMode::None) return false;
-	if (_mode != NrMode::None && _mode != mode && !allowModeSwitch) {
+	const NrMode previousMode = _gradingReady ? _gradingMode : _mode;
+	if (previousMode != NrMode::None && previousMode != mode && !allowModeSwitch) {
 		static bool complained = false;
 		if (!complained) {
 			complained = true;
@@ -1278,11 +1296,6 @@ bool DlssNrFilter::Prepare(
 		_lastBlock = uint32_t(Ipc::NrAtEvaluateBlock::ModeLocked);
 		return false;
 	}
-	if (!_snippet) {
-		_lastError = "DLSSNR snippet 未加载";
-		return false;
-	}
-
 	const DXGI_FORMAT colorFormat = PickColorFormat(_device, colorFormat_);
 	if (colorFormat == DXGI_FORMAT_UNKNOWN) {
 		if (_colorFormat != colorFormat_) {
@@ -1293,6 +1306,15 @@ bool DlssNrFilter::Prepare(
 		_lastError = "DLSSNR 不支持该颜色格式";
 		_lastBlock = uint32_t(Ipc::NrAtEvaluateBlock::ColorFormat);
 		return false;
+	}
+	_gradingReady = settings.grading.AnyActive() && PrepareGrading(width, height, colorFormat, mode);
+	if (!settings.enabled) {
+		if (wasRunningNr) { _optical.Suspend(); _needsReset = true; }
+		return _gradingReady;
+	}
+	if (!_snippetInitialized && !LoadSnippet(_selfModule)) {
+		// Grading can still render if a user has removed the optional NR runtime.
+		return _gradingReady;
 	}
 	const uint32_t typelessViewBit = colorFormat_ == DXGI_FORMAT_R8G8B8A8_TYPELESS ? 1u :
 		colorFormat_ == DXGI_FORMAT_B8G8R8A8_TYPELESS ? 2u : 0u;
@@ -1384,6 +1406,7 @@ bool DlssNrFilter::Prepare(
 		}
 		_settings = settings;
 		if (!settings.opticalFlow) _optical.Suspend();
+		_runNr = true;
 		return true;
 	}
 
@@ -1463,7 +1486,173 @@ bool DlssNrFilter::Prepare(
 	// 只有真的建成了才认领这条路。建不起来就别把路占住 ——
 	// 否则另一条本来能跑的路也被锁在外面了。
 	_mode = mode;
+	_runNr = true;
 	return true;
+}
+
+bool DlssNrFilter::PrepareGrading(uint32_t width, uint32_t height,
+	DXGI_FORMAT format, NrMode mode) noexcept {
+	if (!_grading.Initialize(_device)) return false;
+	const bool resize = !_gradingInput || !_gradingOutput || width != _gradingWidth ||
+		height != _gradingHeight || format != _gradingFormat;
+	if (resize || _gradingMode != mode) {
+		// External Evaluate work is already drained by the caller's GPU gate.
+		// Our own queue may still reference these resources/slot descriptors.
+		WaitForOwnWorkIdle();
+		if (_pendingRebuildBlocked) return false;
+	}
+	if (resize) {
+		auto* input = CreateTexture(_device, width, height, format, false,
+			D3D12_RESOURCE_STATE_COPY_DEST, L"DXL.Grading.Input");
+		auto* output = CreateTexture(_device, width, height, format, true,
+			D3D12_RESOURCE_STATE_UNORDERED_ACCESS, L"DXL.Grading.Output");
+		if (!input || !output) {
+			SafeRelease(input); SafeRelease(output);
+			return false;
+		}
+		SafeRelease(_gradingInput); SafeRelease(_gradingOutput);
+		_gradingInput = input; _gradingOutput = output;
+		_gradingWidth = width; _gradingHeight = height; _gradingFormat = format;
+	}
+	_gradingMode = mode;
+	return true;
+}
+
+bool DlssNrFilter::RecordGrading(ID3D12GraphicsCommandList* list,
+	const GpuImage& source, const GpuImage& destination, bool inputLinear,
+	ColorGradingFrame& frame) noexcept {
+	if (!_gradingReady || !_settings.grading.AnyActive() || !list ||
+		!source.IsValid() || !destination.IsValid()) return false;
+	const auto sourceDesc = source.resource->GetDesc();
+	const auto destDesc = destination.resource->GetDesc();
+	// This bridge copies full frames and must never copy differently sized,
+	// multisampled, mipmapped, or array resources with CopyResource.
+	const auto compatible = [&](const D3D12_RESOURCE_DESC& desc) {
+		return desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+			desc.Width == _gradingWidth && desc.Height == _gradingHeight &&
+			desc.DepthOrArraySize == 1 && desc.MipLevels == 1 && desc.SampleDesc.Count == 1 &&
+			NrColorViewFormat(desc.Format) == _gradingFormat;
+	};
+	if (!compatible(sourceDesc) || !compatible(destDesc)) return false;
+	if (&frame == &_evaluateGrading) {
+		std::lock_guard<std::mutex> lock(_gradingLifecycleMutex);
+		if (_gradingDiscarded) {
+			// No GPU ever executed the abandoned upload/barriers. Recreate its
+			// LUT on the next real recording instead of sampling uninitialized data.
+			frame.lut.Reset(); frame.upload.Reset(); frame.lutRevision = 0;
+			_gradingDiscarded = false;
+		}
+		_gradingRecordedList = list;
+	}
+	// NR output and ordinary game textures are already usable as SRVs. Avoid
+	// an extra full-frame copy there; only copy swapchain resources that deny
+	// sampling, or our own output when it is fed back as the next input.
+	const bool copied = (sourceDesc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) ||
+		source.resource == _gradingOutput;
+	ID3D12Resource* sampled = copied ? _gradingInput : source.resource;
+	if (copied) {
+		Barrier(list, source.resource, source.state, D3D12_RESOURCE_STATE_COPY_SOURCE);
+		list->CopyResource(_gradingInput, source.resource);
+		Barrier(list, source.resource, D3D12_RESOURCE_STATE_COPY_SOURCE, source.state);
+		Barrier(list, _gradingInput, D3D12_RESOURCE_STATE_COPY_DEST,
+			D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+	} else Barrier(list, source.resource, source.state, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+	const bool drawn = _grading.Record(list, sampled, _gradingOutput,
+		_gradingWidth, _gradingHeight, _settings.grading, inputLinear,
+		uint32_t(_gradingCount), frame);
+	Barrier(list, sampled, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+		copied ? D3D12_RESOURCE_STATE_COPY_DEST : source.state);
+	if (!drawn) return false;
+	if (destination.resource == _gradingOutput) {
+		// Handoff's contract keeps our own output in UAV state. Make the
+		// dispatch visible even when no transition/copy follows this call.
+		D3D12_RESOURCE_BARRIER visible{};
+		visible.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+		visible.UAV.pResource = _gradingOutput;
+		list->ResourceBarrier(1, &visible);
+		Barrier(list, _gradingOutput, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, destination.state);
+	} else {
+		Barrier(list, _gradingOutput, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+			D3D12_RESOURCE_STATE_COPY_SOURCE);
+		Barrier(list, destination.resource, destination.state, D3D12_RESOURCE_STATE_COPY_DEST);
+		list->CopyResource(destination.resource, _gradingOutput);
+		Barrier(list, destination.resource, D3D12_RESOURCE_STATE_COPY_DEST, destination.state);
+		Barrier(list, _gradingOutput, D3D12_RESOURCE_STATE_COPY_SOURCE,
+			D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+	}
+	++_gradingCount;
+	return true;
+}
+
+void DlssNrFilter::NotifyGradingSubmitted(UINT count,
+	ID3D12CommandList* const* lists) noexcept {
+	if (!lists) return;
+	std::lock_guard<std::mutex> lock(_gradingLifecycleMutex);
+	for (UINT i = 0; i < count; ++i) {
+		if (lists[i] == _gradingRecordedList) { _gradingRecordedList = nullptr; break; }
+	}
+}
+
+void DlssNrFilter::NotifyGradingReset(ID3D12GraphicsCommandList* list) noexcept {
+	std::lock_guard<std::mutex> lock(_gradingLifecycleMutex);
+	if (list && list == _gradingRecordedList) {
+		_gradingRecordedList = nullptr;
+		_gradingDiscarded = true;
+	}
+}
+
+bool DlssNrFilter::ExecuteGrading(const GpuImage& source,
+	const GpuImage& destination) noexcept {
+	if (_disabled || !_gradingReady || _gradingMode != NrMode::Present) return false;
+	Slot& slot = _slots[_nextSlot++ % SLOT_COUNT];
+	if (!TryClaimSlot(slot)) return false;
+	if (FAILED(slot.allocator->Reset()) ||
+		FAILED(slot.commandList->Reset(slot.allocator, nullptr))) return false;
+	const bool linear = _gradingFormat == DXGI_FORMAT_R16G16B16A16_FLOAT ||
+		_gradingFormat == DXGI_FORMAT_R11G11B10_FLOAT ||
+		_gradingFormat == DXGI_FORMAT_R32G32B32A32_FLOAT;
+	const bool drawn = RecordGrading(slot.commandList, source, destination, linear, slot.grading);
+	if (FAILED(slot.commandList->Close())) { slot.grading = {}; return false; }
+	// A rejected LUT can still record an upload or resource transitions.
+	// Submit/retire any recorded list rather than discarding its state changes.
+	ID3D12CommandList* lists[]{slot.commandList};
+	_queue->ExecuteCommandLists(1, lists);
+	slot.fenceValue = ++_fenceValue;
+	if (FAILED(_queue->Signal(_fence, slot.fenceValue))) {
+		_disabled = true;
+		_lastError = "Color grading queue fence Signal failed";
+		return false;
+	}
+	return drawn;
+}
+
+bool DlssNrFilter::ExecuteGradingOnList(ID3D12GraphicsCommandList* list,
+	const NrEvaluateInput& input) noexcept {
+	if (_disabled || !_gradingReady || !list || !input.color ||
+		_gradingMode != NrMode::AtEvaluate) return false;
+	// If the active output is only a subrectangle, do not alter unused pixels.
+	// The NR route already requires full-resource output; keep the same contract.
+	if ((input.subrectWidth && input.subrectWidth != _gradingWidth) ||
+		(input.subrectHeight && input.subrectHeight != _gradingHeight)) return false;
+	const auto completed = _fence ? _fence->GetCompletedValue() : UINT64_MAX;
+	if (completed == UINT64_MAX || completed < _fenceValue) return false;
+	auto& tracker = CommandListTracker::Get();
+	if (!CommandListTracker::rootsReady.load() || !tracker.TrackedCount()) {
+		_lastBlock = uint32_t(Ipc::NrAtEvaluateBlock::StateUntracked);
+		return false;
+	}
+	const CommandListState saved = tracker.Snapshot(list);
+	if (!saved.RestorableComputeBindings()) {
+		_lastBlock = uint32_t(Ipc::NrAtEvaluateBlock::StateUntracked);
+		return false;
+	}
+	CommandListTracker::IgnoreScope ignore;
+	const bool drawn = RecordGrading(list, {input.color, input.colorState},
+		{input.color, input.colorState}, !input.colorHdrKnown || input.colorIsHdr,
+		_evaluateGrading);
+	CommandListTracker::Restore(list, saved);
+	_lastBlock = uint32_t(drawn ? Ipc::NrAtEvaluateBlock::None : Ipc::NrAtEvaluateBlock::NrNotReady);
+	return drawn;
 }
 
 /* ============================ 每帧 ============================ */
@@ -1610,6 +1799,7 @@ bool DlssNrFilter::EnsureZeroTexturesCleared() noexcept {
 
 bool DlssNrFilter::ExecuteOnList(
 	ID3D12GraphicsCommandList* list, const NrEvaluateInput& input) noexcept {
+	if (!_runNr) return ExecuteGradingOnList(list, input);
 	D3D12Validation::Scope nrPhase(L"NR ExecuteOnList");
 	if (_disabled || !_feature || !list || !input.color ||
 		!_colorIn || !_output) {
@@ -2181,7 +2371,13 @@ bool DlssNrFilter::ExecuteOnList(
         Barrier(list, _fullOut, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATE_COPY_SOURCE);
     }
-	// 抄走处理**后**的像素。抄的是 _decoded 而不是 _output —— 要看的是"最终写回游戏
+	// Grade the composed NR output before it is returned to the game's FG input.
+	// The same external GPU gate protects both the NR scratch and this frame's
+	// grading descriptors. Diagnostic views deliberately remain ungraded.
+	if (!_settings.skipWriteBack && _settings.debugView == NrSettings::DebugView::Off)
+		RecordGrading(list, { finalDecoded, D3D12_RESOURCE_STATE_COPY_SOURCE },
+			{ finalDecoded, D3D12_RESOURCE_STATE_COPY_SOURCE }, !ldr, _evaluateGrading);
+	// 抄走处理**后**的像素。抄的是 _decoded 而不是 _output —— 要看的是“最终写回游戏
 	// 的是什么"，压缩域里的数字没有可比性。
 	if (dumpThisFrame) {
 		RecordDumpCopy(list, finalDecoded, _dumpAfter);
@@ -2838,6 +3034,7 @@ void DlssNrFilter::ReportTiming(uint32_t slotIndex) noexcept {
 
 bool DlssNrFilter::Execute(
 	const GpuImage& colorSource, const GpuImage& dest) noexcept {
+	if (!_runNr) return ExecuteGrading(colorSource, dest);
 	if (_disabled || !_feature || !colorSource.IsValid() || !dest.IsValid()) {
 		return false;
 	}
@@ -3157,6 +3354,11 @@ bool DlssNrFilter::Execute(
 		finalOut = _fullOut;
 	}
 
+	if (!debugDrawn)
+		RecordGrading(commandList, {finalOut, D3D12_RESOURCE_STATE_UNORDERED_ACCESS},
+			{finalOut, D3D12_RESOURCE_STATE_UNORDERED_ACCESS},
+			_gradingFormat == DXGI_FORMAT_R16G16B16A16_FLOAT ||
+			_gradingFormat == DXGI_FORMAT_R11G11B10_FLOAT, slot.grading);
 	if (destIsOwnOutput) {
 		if (finalOut == _decoded) {
 			Barrier(commandList, _decoded, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -3212,6 +3414,7 @@ bool DlssNrFilter::Execute(
 
 	RecordTimingEnd(commandList, timingSlot);
 	if (FAILED(commandList->Close())) {
+		slot.grading = {};
 		Fail("NR 命令列表 Close 失败");
 		return false;
 	}

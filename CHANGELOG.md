@@ -1,3 +1,17 @@
+# 0.6
+
+## 中文
+
+- 新增基础调色、LUT 和常用滤镜，可在游戏内实时调整。
+- 调色与后处理设置按游戏单独保存。
+- 新增“自定义 FX”，支持加载兼容的 `.fx` 效果文件。
+
+## English
+
+- Added basic color grading, LUTs and common filters with live in-game adjustments.
+- Color grading and post-processing settings are saved separately for each game.
+- Added Custom FX for loading compatible `.fx` effect files.
+
 # 0.5
 
 ## 中文

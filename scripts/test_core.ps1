@@ -17,7 +17,7 @@ $flags = @('/nologo','/O2','/MT','/EHsc','/std:c++20','/utf-8','/W3','/D_CRT_SEC
     '/DUNICODE','/D_UNICODE','/DNOMINMAX','/DWIN32_LEAN_AND_MEAN','/Isrc/core','/Isrc/common','/Ithird_party/minhook/include',
     ('/I'+(Join-Path $DependencyRoot 'dlss/include')),'/Ithird_party/fidelityfx/sdk/include','/Ithird_party/fidelityfx/sdk/src/backends/shared',"/Fo$OutDir/obj/tests/")
 function Build-Test([string]$Name, [string[]]$Extra = @(), [string[]]$Libs = @()) {
-    & cl.exe @flags "tests/$Name.cpp" @Extra /link "/OUT:$OutDir/$Name.exe" d3d12.lib dxgi.lib dxguid.lib d3dcompiler.lib psapi.lib user32.lib shell32.lib ole32.lib advapi32.lib @Libs
+    & cl.exe @flags "tests/$Name.cpp" @Extra /link "/OUT:$OutDir/$Name.exe" d3d12.lib dxgi.lib dxguid.lib d3dcompiler.lib psapi.lib user32.lib shell32.lib ole32.lib windowscodecs.lib advapi32.lib @Libs
     if ($LASTEXITCODE) { throw "$Name compilation failed" }
 }
 if ($SettingsOnly -or (!$SmokeOnly -and !$NgxOnly -and !$BridgeOnly)) {
@@ -48,7 +48,7 @@ if ($LASTEXITCODE) { throw 'Typeless color SRV regression failed' }
 Build-Test 'gpu_compat' @('src/core/CommandListTracker.cpp','src/core/ComputePasses.cpp')
 & "$OutDir/gpu_compat.exe"
 if ($LASTEXITCODE) { throw 'GPU compatibility regression failed' }
-Build-Test 'nr_slot_fence' @('src/core/DlssNrFilter.cpp','src/core/OpticalFlow.cpp','src/core/OpticalFlowShaders.cpp',
+Build-Test 'nr_slot_fence' @('src/core/DlssNrFilter.cpp','src/core/ColorGrading.cpp','src/core/OpticalFlow.cpp','src/core/OpticalFlowShaders.cpp',
     'src/core/ComputePasses.cpp','src/core/CommandListTracker.cpp','src/core/FreezeWatchdog.cpp') `
     @((Join-Path $DependencyRoot 'dlss/lib/Windows_x86_64/x64/nvsdk_ngx_s.lib'),"$OutDir/ffx_optical.lib")
 & "$OutDir/nr_slot_fence.exe"
@@ -71,7 +71,7 @@ try { & "$OutDir/ngx_route.exe" } finally { Pop-Location }
 if ($LASTEXITCODE) { throw 'NGX route regression failed' }
 }
 if ($Smoke -or $SmokeOnly) {
-    Build-Test 'nr_smoke' @('src/core/DlssNrFilter.cpp','src/core/OpticalFlow.cpp','src/core/OpticalFlowShaders.cpp',
+    Build-Test 'nr_smoke' @('src/core/DlssNrFilter.cpp','src/core/ColorGrading.cpp','src/core/OpticalFlow.cpp','src/core/OpticalFlowShaders.cpp',
         'src/core/ComputePasses.cpp','src/core/CommandListTracker.cpp','src/core/FreezeWatchdog.cpp') `
         @((Join-Path $DependencyRoot 'dlss/lib/Windows_x86_64/x64/nvsdk_ngx_s.lib'),"$OutDir/ffx_optical.lib")
     & "$OutDir/nr_smoke.exe" --switch-routes --switch-motion --switch-quality --switch-layers --colour=0
@@ -88,9 +88,13 @@ if ($Smoke -or $SmokeOnly) {
     if ($LASTEXITCODE) { throw 'NR Evaluate consecutive-failure regression failed' }
     & "$OutDir/nr_smoke.exe" --failure-streak --present --no-optical
     if ($LASTEXITCODE) { throw 'NR Present consecutive-failure regression failed' }
+    & "$OutDir/nr_smoke.exe" --grading --switch-routes --switch-layers --colour=0
+    if ($LASTEXITCODE) { throw 'NR plus grading Present/Evaluate and NR-only toggle regression failed' }
+    & "$OutDir/nr_smoke.exe" --grading --switch-scale --switch-layers --no-guides --colour=0
+    if ($LASTEXITCODE) { throw 'NR plus grading scale/layers/optical regression failed' }
 }
 if ($Smoke -or $SmokeOnly -or $BridgeOnly) {
-    Build-Test 'nr_bridge11' @('src/core/DlssNrFilter11.cpp','src/core/DlssNrFilter.cpp','src/core/OpticalFlow.cpp',
+    Build-Test 'nr_bridge11' @('src/core/DlssNrFilter11.cpp','src/core/DlssNrFilter.cpp','src/core/ColorGrading.cpp','src/core/OpticalFlow.cpp',
         'src/core/OpticalFlowShaders.cpp','src/core/ComputePasses.cpp','src/core/CommandListTracker.cpp','src/core/FreezeWatchdog.cpp') `
         @('d3d10.lib','d3d11.lib',(Join-Path $DependencyRoot 'dlss/lib/Windows_x86_64/x64/nvsdk_ngx_s.lib'),"$OutDir/ffx_optical.lib")
     & "$OutDir/nr_bridge11.exe" --failure-streak

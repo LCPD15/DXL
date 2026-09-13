@@ -16,6 +16,9 @@ Third-party components use their respective licenses. License texts and notices 
 | AMD FidelityFX / D3DX12 helpers | MIT |
 | Microsoft PIX headers | Accompanying Microsoft license and notices |
 | NR color conversion | GPL-3.0; see NR-Color-Conversion-NOTICE.txt |
+| ReShade 6.8.0 runtime / SDK headers | BSD-3-Clause; SDK headers also offer MIT where indicated |
+| ReShade runtime dependencies | MIT, BSD, Apache-2.0, Unicode and public-domain notices; see ReShade-ThirdParty-NOTICES.txt |
+| ReShade.fxh standard shader helpers | CC0-1.0 |
 
 Component sources and download links: `DEPENDENCIES.md` in the source package.
 组件来源与下载链接见源码包中的 `DEPENDENCIES.md`。

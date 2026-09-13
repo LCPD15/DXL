@@ -6,6 +6,7 @@ $runtimeFolder = if ($Runtime -eq 'Lean') { 'runtime/tensorrt-lean' } else { 'ru
 $runtimeDll = if ($Runtime -eq 'Lean') { 'nvinfer_lean_11.dll' } else { 'nvinfer_11.dll' }
 $modelRoot = Join-Path $DependencyRoot 'models-lean'
 $required = @(
+    (Join-Path $DependencyRoot 'reshade/runtime/DXL-ReShade.dll'),
     (Join-Path $DependencyRoot ($runtimeFolder+'/'+$runtimeDll)),
     (Join-Path $modelRoot 'yolo11n-seg.plan'),
     (Join-Path $DependencyRoot 'runtime/nvngx_dlssnr.dll'),
@@ -24,6 +25,9 @@ function Stage([string]$Source,[string]$Relative) {
     Copy-Item -LiteralPath $Source -Destination $destination -Force
 }
 foreach ($name in @('nvngx_dlssnr.dll','nvngx_dlss.dll','nvngx_dlssg.dll')) { Stage (Join-Path $DependencyRoot ('runtime/'+$name)) ('ngx/'+$name) }
+Stage (Join-Path $DependencyRoot 'reshade/runtime/DXL-ReShade.dll') 'DXL-ReShade.dll'
+foreach ($name in @('Neutral-16.png','README.md')) { Stage (Join-Path $SourceRoot ('lut/'+$name)) ('lut/'+$name) }
+foreach ($name in @('01-Sepia.fx','02-Letterbox.fx','ReShade.fxh','ReShadeUI.fxh','README.md')) { Stage (Join-Path $SourceRoot ('post-processing/'+$name)) ('post-processing/'+$name) }
 # Single YOLO model is integrated into every complete package.
 Stage (Join-Path $DependencyRoot ($runtimeFolder+'/'+$runtimeDll)) ('extensions/semantic/'+$runtimeDll)
 Stage (Join-Path $modelRoot 'yolo11n-seg.plan') 'extensions/semantic/models/yolo11n-seg.plan'
@@ -41,6 +45,11 @@ foreach ($entry in @(
     @('licenses/AGPL-3.0.txt','licenses/YOLO-AGPL-3.0.txt'),
     @('licenses/GPL-3.0.txt','licenses/GPL-3.0.txt'),
     @('licenses/NR-Color-Conversion-NOTICE.txt','licenses/NR-Color-Conversion-NOTICE.txt'),
+    @('licenses/ReShade-LICENSE.txt','licenses/ReShade-LICENSE.txt'),
+    @('licenses/ReShade-ThirdParty-NOTICES.txt','licenses/ReShade-ThirdParty-NOTICES.txt'),
+    @('licenses/ReShade-Shader-Helpers-NOTICE.txt','licenses/ReShade-Shader-Helpers-NOTICE.txt'),
+    @('licenses/ReShade-Helpers-CC0.txt','licenses/ReShade-Helpers-CC0.txt'),
+    @('licenses/MagicBloom-Reference-NOTICE.txt','licenses/MagicBloom-Reference-NOTICE.txt'),
     @('THIRD_PARTY_NOTICES.md','THIRD_PARTY_NOTICES.md'),
     @('LICENSE_STATUS.md','LICENSE_STATUS.md'),
     @('CHANGELOG.md','CHANGELOG.md'),
@@ -51,4 +60,4 @@ foreach ($entry in @(
 Stage (Join-Path $DependencyRoot 'dlss/LICENSE.txt') 'licenses/NVIDIA-RTX-SDK-LICENSE.txt'
 Stage (Join-Path $DependencyRoot 'webview2/licenses/LICENSE.txt') 'licenses/WebView2-LICENSE.txt'
 Stage (Join-Path $DependencyRoot 'webview2/licenses/NOTICE.txt') 'licenses/WebView2-NOTICE.txt'
-Write-Output "PASS DXL 0.5 complete build: $OutDir"
+Write-Output "PASS DXL 0.6 complete build: $OutDir"

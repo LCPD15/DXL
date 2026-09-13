@@ -5,7 +5,7 @@ if ($script:WorkspaceRoot.Equals($script:SourceRoot,[StringComparison]::OrdinalI
 $script:DependencyRoot = Join-Path $script:WorkspaceRoot 'dependencies'
 $script:BuildRoot = Join-Path $script:WorkspaceRoot 'build'
 $env:DXL_WORKSPACE = $script:WorkspaceRoot
-function Resolve-DxlOutput([string]$Path, [string]$Default = 'dxl-0.5') {
+function Resolve-DxlOutput([string]$Path, [string]$Default = 'dxl-0.6') {
     if (!$Path) { $Path = Join-Path $script:BuildRoot $Default }
     elseif (![IO.Path]::IsPathRooted($Path)) { $Path = Join-Path $script:BuildRoot ($Path -replace '^build[\\/]','') }
     $resolved = [IO.Path]::GetFullPath($Path)

@@ -61,6 +61,12 @@
 #include "DirectQueueCandidate.h"
 #include "PresentInlineHooks.h"
 #include "NvSmoothMotion.h"
+#include "ColorGradingUi.h"
+#include "FinalPostProcess.h"
+#include "FinalPresentScope.h"
+#include "ReShadeBridge.h"
+#include "ReShadeUi.h"
+#include "../common/PostFxState.h"
 #include "imgui.h"
 
 #pragma comment(lib, "d3d11.lib")
@@ -70,6 +76,9 @@
 using namespace DXL;
 using Ipc::FeatureState;
 using Ipc::GraphicsApi;
+
+// Separate NR processing switch: global master/Del still controls all effects.
+static bool g_nrProcessingEnabled = true;
 
 namespace {
 
@@ -179,6 +188,11 @@ struct State {
 	DlssSrUpscaler upscaler;
 	DlssNrFilter nrFilter;
 	DlssNrFilter11 nrFilter11;
+	FinalPostProcess12 finalPost12;
+	FinalPostProcess11 finalPost11;
+    ReShadeBridge reshade;
+	uint64_t finalPostLastApplied = 0;
+	FinalPresentationPolicy finalPresentation;
 	SegMaskFilter segMask;
 	bool segMaskTried = false, nr11Tried = false;
     bool semanticAvailable = false;
@@ -347,6 +361,9 @@ bool UsesD3D11Bridge(GraphicsApi api) noexcept {
 const DlssNrFilter& ActiveNrFilter() noexcept {
     return UsesD3D11Bridge(g_state.api) ? g_state.nrFilter11.Filter12ForStatus() : g_state.nrFilter;
 }
+const DlssNrFilter& ActiveFinalFilter() noexcept {
+    return UsesD3D11Bridge(g_state.api) ? g_state.finalPost11.Filter() : g_state.finalPost12.Filter();
+}
 void UpdateSemanticMask() noexcept {
     const bool active = g_state.enabled.load() && g_state.nrSettings.enabled && g_state.semanticAvailable && g_state.nrSettings.semanticMask;
     g_state.segMask.SetActive(active);
@@ -379,6 +396,7 @@ void UpdateSemanticMask() noexcept {
 void CleanupDxl() noexcept {
     StopLegacyGraphicsHooks();
     std::lock_guard<std::recursive_mutex> lock(g_nrStateMutex);
+    g_state.reshade.Shutdown();
     g_state.directQueueCandidate.Clear();
     CommandListTracker::Get().SetResetObserver(nullptr, nullptr);
     g_state.segMask.SetActive(false);
@@ -386,6 +404,8 @@ void CleanupDxl() noexcept {
     if (!evaluateIdle) g_state.segMask.RetainForExit();
     g_state.segMask.TeardownForExit();
     ReUi::Shutdown();
+    g_state.finalPost11.TeardownForExit();
+    g_state.finalPost12.TeardownForExit();
     if (evaluateIdle) {
         g_state.nrFilter11.TeardownForExit();
         g_state.nrFilter.TeardownForExit();
@@ -852,7 +872,9 @@ void ReloadSettings() noexcept {
 	}
 
 	NrSettings nr;
-	nr.enabled = reader.GetBool("dlss5Enable", false);
+	g_nrProcessingEnabled = reader.GetBool("nrProcessingEnabled", true);
+	nr.enabled = reader.GetBool("dlss5Enable", false) && g_nrProcessingEnabled;
+	nr.grading = ReadColorGradingSettings(reader);
 	nr.preset = reader.GetInt("nrPreset", 0);
 	// 默认 2 = Cinematic（用户拍板的新游戏默认：电影风格）。
 	nr.style = reader.GetInt("nrStyle", 2);
@@ -1021,6 +1043,7 @@ void STDMETHODCALLTYPE HookedExecuteCommandLists(
 	g_state.directQueueCandidate.Observe(queue);
 	g_originalExecuteCommandLists(queue, count, lists);
 	PresentWriterTracker::Get().Submitted(queue, count, lists);
+	g_state.nrFilter.NotifyGradingSubmitted(count, lists);
 	EvaluateGpuGate::Get().Submitted(queue, count, lists);
 	NrRouteProbe::Get().Submitted(queue, count, lists);
 	g_state.segMask.NotifySubmitted(queue, count, lists);
@@ -1568,7 +1591,7 @@ bool RunNrAtEvaluate(
 	// 开头就检查了，这条路跑在另一个线程上，所以要单独查一次。
 	if (!g_state.enabled.load(std::memory_order_relaxed)) return false;
 	outcome = Attempt::NrOff;
-	if (!g_state.nrAtEvaluate || !g_state.nrSettings.enabled) return false;
+	if (!g_state.nrAtEvaluate || (!g_state.nrSettings.enabled && !g_state.nrSettings.grading.AnyBasicActive())) return false;
 	outcome = Attempt::Dormant;
 	if (g_state.nrAutoRoute && !NrRouteProbe::Get().UseEvaluate(GetTickCount64(),
 		NgxEavesdrop::Get().FrameGenerationActive(0))) return false;
@@ -1586,7 +1609,7 @@ bool RunNrAtEvaluate(
 
 	// Use the current native SR guides while their lifetime is guaranteed by this call.
 	// Combined read states are valid; the SR->NR path neither copies nor transitions them.
-	if (!frame.motionVectors) return false;
+	if (g_state.nrSettings.enabled && !frame.motionVectors) return false;
 
 	// NR owns one serial layer chain/scratch set. Reuse it only after the previous list's
 	// ACTUAL queue fence completes, before Prepare can release/rebuild anything.
@@ -1611,7 +1634,7 @@ bool RunNrAtEvaluate(
 	// 会顿在游戏的渲染线程上，只发生一次，先记下来别当成 bug。
 	outcome = Attempt::Prepare;
 	if (!g_state.nrFilter.Prepare(frame.outputWidth, frame.outputHeight,
-		DXGI_FORMAT(frame.outputFormat), g_state.nrSettings,
+		DXGI_FORMAT(frame.outputFormat), SceneColorSettings(g_state.nrSettings),
 		NrMode::AtEvaluate, g_state.nrAutoRoute)) {
 		return false;
 	}
@@ -1767,7 +1790,7 @@ static void TryInitNr() noexcept {
 	std::lock_guard<std::recursive_mutex> nrLock(g_nrStateMutex);
 	if (!g_state.device12) return;
 	if (!g_state.enabled.load(std::memory_order_relaxed)) return;
-	if (!g_state.nrSettings.enabled) return;
+	if (!g_state.nrSettings.enabled && !g_state.nrSettings.grading.AnyBasicActive()) return;
 	AdoptFallbackQueue();
 	if (!g_state.capturedQueue) return;
 	// **注入成功后延迟 5 秒再初始化 NR。**
@@ -1814,7 +1837,7 @@ void RememberPresentQueue(IDXGISwapChain* chain, IUnknown* device) {
 	}
 }
 void RunFilters11(IDXGISwapChain* swapChain) noexcept {
-    if (!g_state.enabled.load() || !g_state.nrSettings.enabled || !g_state.device11) return;
+    if (!g_state.enabled.load() || (!g_state.nrSettings.enabled && !g_state.nrSettings.grading.AnyBasicActive()) || !g_state.device11) return;
     if (GetTickCount64() < g_state.uiPauseUntil) return;
     if (!g_state.nr11Tried) {
         g_state.nr11Tried = true;
@@ -1830,7 +1853,7 @@ void RunFilters11(IDXGISwapChain* swapChain) noexcept {
         index = chain3->GetCurrentBackBufferIndex(); chain3->Release();
     }
     if (SUCCEEDED(swapChain->GetBuffer(index, IID_PPV_ARGS(&backbuffer)))) {
-        g_state.nrFilter11.Execute(backbuffer, g_state.nrSettings);
+        g_state.nrFilter11.Execute(backbuffer, SceneColorSettings(g_state.nrSettings));
         backbuffer->Release();
     }
 }
@@ -1867,7 +1890,7 @@ void RunFilters(IDXGISwapChain* swapChain) noexcept {
 	const bool uncertainHandoff = autoRoute && NgxEavesdrop::Get().FrameGenerationModuleLoaded() &&
 		FrameGenSwapChains::Get().AutomaticHandoffUncertain(swapChain, &handoffBuffers);
 	const auto routeStatus = NrRouteProbe::Get().Snapshot(GetTickCount64(), fgActive, uncertainHandoff);
-	g_state.nrAutomaticHandoffBlocked = master && g_state.nrSettings.enabled && routeStatus.handoffBlocked;
+	g_state.nrAutomaticHandoffBlocked = master && (g_state.nrSettings.enabled || g_state.nrSettings.grading.AnyBasicActive()) && routeStatus.handoffBlocked;
 	// A menu can stop SR while retaining FG's resources/queue ownership. The
 	// user threshold is a heuristic override, never proof that this handoff is
 	// safe. Preserve native SR->NR and standalone Present; hold only an automatic
@@ -1891,7 +1914,7 @@ void RunFilters(IDXGISwapChain* swapChain) noexcept {
 
 
 	D5_STAGE(FiltersEnter);
-	if (!proxyLive && !g_state.srSettings.enabled && !g_state.nrSettings.enabled) {
+	if (!proxyLive && !g_state.srSettings.enabled && !g_state.nrSettings.enabled && !g_state.nrSettings.grading.AnyBasicActive()) {
 		return;
 	}
 
@@ -1926,7 +1949,7 @@ void RunFilters(IDXGISwapChain* swapChain) noexcept {
 	// SR 需要 core；NR 不需要，所以这里不能整体 return
 	const bool srUsable = NgxSession::Get().IsInitialized() &&
 		NgxSession::Get().IsSuperSamplingAvailable();
-	if (!srUsable && !proxyLive && !g_state.nrSettings.enabled) return;
+	if (!srUsable && !proxyLive && !g_state.nrSettings.enabled && !g_state.nrSettings.grading.AnyBasicActive()) return;
 
 	if (g_state.srSettings.enabled && srUsable && !g_state.upscalerInitialized) {
 		D5_EVENT(UpscalerInit);
@@ -2132,7 +2155,7 @@ void RunFilters(IDXGISwapChain* swapChain) noexcept {
 	const bool nrPaused = (g_state.uiPauseUntil &&
 			GetTickCount64() < g_state.uiPauseUntil) ||
 		g_state.uiPauseFrames > 0;
-	NrSettings presentSettings = g_state.nrSettings;
+	NrSettings presentSettings = SceneColorSettings(g_state.nrSettings);
 	// Legacy zero-motion fallback resets NR each frame. Optical fallback owns its
 	// history resets and retains temporal history only while flow is available.
 	if (autoRoute) presentSettings.forceReset = !presentSettings.opticalFlow;
@@ -2267,8 +2290,8 @@ static void UiApplyKey(std::string& text, const std::string& key,
         size_t head = at + needle.size();
         while (head < text.size() &&
                (text[head] == ' ' || text[head] == '\t')) ++head;
-        const size_t tail = text.find_first_of(",}\n", head);
-        if (tail != std::string::npos) {
+        const size_t tail = JsonScalar::End(text, head);
+        if (tail <= text.size()) {
             text.replace(head, tail - head, value);
             return;
         }
@@ -2342,6 +2365,21 @@ static bool UiSaveSettings() {
     UiApplyKey(text, "nrSemanticFeather", asFlt(nr.semanticFeather));
     for (int g = 0; g < SEM_GROUP_COUNT; ++g)
         UiApplyKey(text, "nrSemInt" + std::to_string(g), asFlt(nr.semanticIntensity[g]));
+    UiApplyKey(text, "nrProcessingEnabled", asBool(g_nrProcessingEnabled));
+    for (const auto& entry : ColorGradingParameters) {
+        const auto& control = nr.grading.*entry.member;
+        const float value = std::isfinite(control.value) ? std::clamp(control.value, entry.minimum, entry.maximum) : entry.neutral;
+        UiApplyKey(text, entry.key, asFlt(value));
+        UiApplyKey(text, std::string(entry.key) + "Enabled", asBool(control.enabled));
+    }
+    for (const auto& entry : BloomParameters) {
+        const float value = nr.grading.*entry.member;
+        UiApplyKey(text, entry.key, asFlt(std::isfinite(value) ? std::clamp(value, entry.minimum, entry.maximum) : entry.defaultValue));
+    }
+    UiApplyKey(text, "colorLutEnabled", asBool(nr.grading.lutEnabled));
+    UiApplyKey(text, "colorLutIntensity", asFlt(std::isfinite(nr.grading.lutIntensity) ? std::clamp(nr.grading.lutIntensity, 0.0f, 1.0f) : 1.0f));
+    UiApplyKey(text, "colorLutFile", JsonScalar::Quote(nr.grading.lutFile));
+    UiApplyKey(text, "colorFxState", JsonScalar::Quote(SerializePostFxState(nr.grading.fx)));
 
     const auto temporary = path + L".tmp";
     FILE* f = nullptr;
@@ -2365,7 +2403,7 @@ static void UiMarkSave() {
 }
 
 // 产品版本号（面板标题行下方显示）
-static const char* kUiVersion = "0.5";
+static const char* kUiVersion = "0.6";
 
 // ---- 中英双语参数说明（复用自早期插件版，参考 NVIDIA DLSS5 文章措辞）----
 static const char* UiText(const char* zh, const char* en) { return g_state.uiLanguage == 2 ? en : zh; }
@@ -2439,10 +2477,8 @@ static int g_hkCapture = 0;
 
 static void UiToggleEnabled() {
 	std::lock_guard<std::recursive_mutex> nrLock(g_nrStateMutex);
-    const bool en = !(g_state.nrSettings.enabled &&
-                      g_state.enabled.load(std::memory_order_relaxed));
+    const bool en = !g_state.enabled.load(std::memory_order_relaxed);
     g_state.enabled.store(en, std::memory_order_relaxed);
-    g_state.nrSettings.enabled = en;
     if (UsesD3D11Bridge(g_state.api)) g_state.nrFilter11.InvalidateOpticalHistory();
     else g_state.nrFilter.InvalidateOpticalHistory();
     UiMarkSave();
@@ -2553,8 +2589,13 @@ static void UiBuildPanel(bool escapePressed) {
     // 顶部约 8% 高度。只在该会话首次打开时生效，拖动后的位置会被记住。
     {
         const ImVec2 vs = ImGui::GetIO().DisplaySize;
+        const float maxWidth = std::max(1.0f, vs.x - 32.0f);
+        const float maxHeight = std::max(1.0f, vs.y - 48.0f);
+        ImGui::SetNextWindowSizeConstraints(
+            ImVec2(std::min(maxWidth, ImGui::GetFontSize() * 32.0f), std::min(maxHeight, 160.0f)),
+            ImVec2(maxWidth, maxHeight));
         ImGui::SetNextWindowPos(
-            ImVec2(vs.x * 0.85f, vs.y * 0.08f),
+            ImVec2(vs.x - 24.0f, vs.y * 0.04f),
             ImGuiCond_Once, ImVec2(1.0f, 0.0f));   // pivot = 右上角
     }
     bool panelOpen = g_uiOpen.load(std::memory_order_relaxed);
@@ -2566,14 +2607,16 @@ static void UiBuildPanel(bool escapePressed) {
         return;
     }
 
-    ImGui::TextColored(RTX,
-        "DXL - DLSS eXtended Loader  by LCPD15");
-    ImGui::TextDisabled("Version %s", kUiVersion);
+    ImGui::TextColored(RTX, "DXL - DLSS eXtended Loader  v%s", kUiVersion);
+    ImGui::SameLine(); ImGui::TextDisabled("by LCPD15");
     ImGui::Separator();
 
+    if (ImGui::BeginTabBar("DXLFeatures", ImGuiTabBarFlags_FittingPolicyScroll)) {
+    if (ImGui::BeginTabItem("DLSSNR")) {
+
     // master switch (mirrors the DLSS5 toggle hotkey / SetEnabled)
-    const bool en = nr.enabled && g_state.enabled.load(std::memory_order_relaxed);
-    if (ImGui::Button(en ? "DLSS5: ON" : "DLSS5: OFF")) {
+    const bool en = g_state.enabled.load(std::memory_order_relaxed);
+    if (ImGui::Button(en ? UiText("总开关: ON", "All effects: ON") : UiText("总开关: OFF", "All effects: OFF"))) {
         UiToggleEnabled();
     }
     UiItemHelp(kHelpToggle);
@@ -2581,6 +2624,14 @@ static void UiBuildPanel(bool escapePressed) {
     char enKey[48];
     ImGui::TextDisabled("(%s)",
         VkName(g_state.hkToggleEnabled, enKey, sizeof enKey));
+    ImGui::SameLine();
+    bool nrOnly = nr.enabled;
+    if (ImGui::Checkbox("DLSSNR", &nrOnly)) {
+        g_nrProcessingEnabled = nr.enabled = nrOnly;
+        if (UsesD3D11Bridge(g_state.api)) g_state.nrFilter11.InvalidateOpticalHistory();
+        else g_state.nrFilter.InvalidateOpticalHistory();
+        UiMarkSave();
+    }
 
     // input source combo: native vs zero
     int inputs = (nr.useRealDepth && nr.useRealMotion) ? 1 : 0;
@@ -2897,8 +2948,38 @@ static void UiBuildPanel(bool escapePressed) {
         ImGui::TextDisabled(UiText("改完重启游戏生效；无法进入游戏时，可在工具内删除配置以关闭。", "Restart to apply. If the game cannot start, delete its DXL profile to turn this off."));
     }
 
+    ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem(UiText("调色 / Color Grading", "Color Grading"))) {
+        bool master = g_state.enabled.load(std::memory_order_relaxed);
+        if (ImGui::Checkbox(UiText("总开关（所有效果）", "Master (all effects)"), &master))
+            UiToggleEnabled();
+        if (!master) ImGui::TextDisabled("%s", UiText("总开关已关闭；开启后应用调色。", "Master is off; enable it to apply grading."));
+        static ColorGradingUi gradingUi;
+        if (gradingUi.Draw(nr.grading, g_state.selfModule, g_state.uiLanguage == 2)) UiMarkSave();
+        bool reloadReShade = false;
+        if (DrawReShadeUi(g_state.reshade.Runtime(), g_state.uiLanguage == 2, &reloadReShade)) g_state.reshade.Save();
+        if (reloadReShade) g_state.reshade.Reload();
+        if (g_state.reshade.Error()[0]) ImGui::TextWrapped("%s", g_state.reshade.Error());
+        const auto& filter = ActiveNrFilter();
+        const auto& finalFilter = ActiveFinalFilter();
+        ImGui::TextDisabled(UiText("基础调色帧: %llu  最终后处理帧: %llu", "Basic grading frames: %llu  Final post-process frames: %llu"),
+            (unsigned long long)filter.GradingCount(), (unsigned long long)finalFilter.GradingCount());
+        if (nr.grading.AnyBasicActive() && filter.GradingError()[0]) ImGui::TextWrapped("%s", filter.GradingError());
+        if (nr.grading.AnyFinalActive() && finalFilter.GradingError()[0]) ImGui::TextWrapped("%s", finalFilter.GradingError());
+        if (master && nr.grading.AnyFinalActive() && GetTickCount64() - g_state.finalPostLastApplied > 1000)
+            ImGui::TextWrapped("%s", UiText("后处理等待可确认的最终画面与呈现队列；未确认的 FG 代理不会强行处理。",
+                "Post-processing is waiting for a verified final image and presentation queue; unverified FG proxies are skipped."));
+        if (g_state.finalPost12.SyncFailed()) ImGui::TextWrapped("%s", UiText("后处理同步失败，本次游戏已暂停后处理。", "Post-processing synchronization failed and is paused for this session."));
+        if (g_state.nrAutomaticHandoffBlocked && nr.grading.AnyBasicActive())
+            ImGui::TextWrapped("%s", UiText("基础调色等待游戏渲染路径恢复；独立后处理不依赖此路径。",
+                "Basic grading is waiting for the game render route; independent post-processing does not depend on it."));
+        ImGui::EndTabItem();
+    }
+    ImGui::EndTabBar();
+    }
     char uiKey[48], enKey2[48];
-    ImGui::TextDisabled("%s = panel   %s = DLSS5 on/off   Esc = close",
+    ImGui::TextDisabled("%s = panel   %s = all effects   Esc = close",
         VkName(g_state.hkToggleUi, uiKey, sizeof uiKey),
         VkName(g_state.hkToggleEnabled, enKey2, sizeof enKey2));
     ImGui::End();
@@ -3084,83 +3165,112 @@ bool UiMayDraw() noexcept {
     return true;
 }
 
-// Called after NR and before the native presentation.
-void UiFramePresent(IDXGISwapChain* swapChain) noexcept {
+// Scene NR is upstream. Output effects and UI share the verified native
+// backbuffer writer evidence, which must only be consumed once per operation.
+void UiFramePresent(IDXGISwapChain* swapChain, FinalPresentScope& scope) noexcept {
     std::lock_guard<std::recursive_mutex> nrLock(g_nrStateMutex);
-    // Factory queue ownership also permits FG. Late injection requires fresh
-    // backbuffer writer evidence. FG heuristics additionally require native DXGI buffer access.
+    PresentWriterTracker::IgnoreScope ignoreOwnWriterEvidence;
     DXGI_SWAP_CHAIN_DESC desc{};
     if (FAILED(swapChain->GetDesc(&desc))) return;
     if (!AcceptDxgiPresentation(g_state.api, desc.OutputWindow,
             desc.BufferDesc.Width, desc.BufferDesc.Height)) return;
-    const bool closeOnEscape = UiAdvanceFrameInput();
-    bool ready = false;
+    // Keep the runtime updating with the master off so its techniques remain
+    // visible/editable. Its effect execution obeys the master separately.
+    const bool reShadeNeeded = g_state.reshade.Needed(g_state.selfModule);
+    const bool finalEnabled = (g_state.enabled.load() && g_state.nrSettings.grading.AnyFinalActive()) || reShadeNeeded;
+    const auto now = GetTickCount64();
+    g_state.finalPresentation.Begin(finalEnabled, now);
+    if (!scope.Outer() && !finalEnabled) return; // Preserve the established NR/UI route when post-processing is off.
+    if (scope.AdvanceInputOnce()) scope.SetCloseOnEscape(UiAdvanceFrameInput());
+    const bool closeOnEscape = scope.CloseOnEscape();
+    Microsoft::WRL::ComPtr<IDXGISwapChain3> chain3;
+    Microsoft::WRL::ComPtr<IUnknown> identity;
+    const auto originalGet = SwapOriginal(swapChain, VT_SWAPCHAIN_GET_BUFFER, g_originalGetBuffer);
+    const bool native = SUCCEEDED(swapChain->QueryInterface(IID_PPV_ARGS(&chain3))) &&
+        PresentWriterTracker::HasNativeBufferAccess(chain3.Get(), reinterpret_cast<void*>(originalGet));
+    if (native) {
+        swapChain->QueryInterface(IID_PPV_ARGS(&identity));
+        if (!scope.EnterNative(reinterpret_cast<uintptr_t>(identity.Get()))) return;
+    }
+    const bool upstreamUi = scope.UpstreamUiDrawn();
+    const bool fallbackUi = finalEnabled && !native && scope.Outer() && g_state.finalPresentation.ProxyUiFallback(now);
+    const bool drawUi = !g_state.noUiPresent && (finalEnabled ? ((native && !upstreamUi) || fallbackUi) : scope.Outer());
+    const bool finalAllowed = finalEnabled && native && !upstreamUi &&
+        now >= g_state.uiPauseUntil && g_state.uiPauseFrames <= 0;
+    // The first unknown wrapper frames wait for a native child. If none can be
+    // used, retain its old overlay as controls-only fallback after one second.
+    if (!drawUi && !finalAllowed && !(finalEnabled && native && upstreamUi)) return;
+    bool ready = false, applied = false, nativeQueueReady = false;
     if (g_state.api == GraphicsApi::D3D11 && g_state.device11) {
-        ID3D11DeviceContext* context = nullptr;
-        g_state.device11->GetImmediateContext(&context);
-        ready = ReUi::InitOnce11(g_state.device11, context, desc.OutputWindow, desc.BufferDesc.Format);
-        if (context) context->Release();
-    } else {
-        ID3D12CommandQueue* queue = nullptr;
-        UINT bytes = sizeof(queue);
-        if (SUCCEEDED(swapChain->GetPrivateData(NR_PRESENT_QUEUE, &bytes, &queue)) && queue) {
-            ID3D12Device* device = nullptr;
-            if (SUCCEEDED(queue->GetDevice(IID_PPV_ARGS(&device)))) {
-                ready = ReUi::InitOnce(device, queue, desc.OutputWindow, desc.BufferDesc.Format);
-                device->Release();
-            }
-            queue->Release();
-        } else {
-            // Missed factory call: prove the current buffer's game writer,
-            // rather than using the first DIRECT queue observed in the process.
-            // FramePresent fences its UI work before returning. This fallback
-            // rejects unknown FG proxies. On a native DXGI chain the current
-            // buffer is the real presentation buffer, even when FG DLLs remain
-            // loaded. UI is serialized after its writer and drained before Present.
-            // This never changes NR's FG guard or publishes a guessed factory queue.
-            Microsoft::WRL::ComPtr<IDXGISwapChain3> chain3;
-            Microsoft::WRL::ComPtr<ID3D12Resource> buffer;
-            if (!g_state.scalerActive.load() &&
-                SUCCEEDED(swapChain->QueryInterface(IID_PPV_ARGS(&chain3))) &&
-                SUCCEEDED(swapChain->GetBuffer(chain3->GetCurrentBackBufferIndex(), IID_PPV_ARGS(&buffer)))) {
-                auto& tracker = PresentWriterTracker::Get();
-                tracker.WatchBuffer(buffer.Get());
-                auto writer = tracker.Acquire(buffer.Get(), NgxEavesdrop::Get().FrameGenerationActive(0),
-                    PresentWriterTracker::HasNativeBufferAccess(chain3.Get(), reinterpret_cast<void*>(
-                        SwapOriginal(swapChain, VT_SWAPCHAIN_GET_BUFFER, g_originalGetBuffer))));
-                if (writer) {
-                    Microsoft::WRL::ComPtr<ID3D12Device> device;
-                    if (SUCCEEDED(writer->GetDevice(IID_PPV_ARGS(&device))))
-                        ready = ReUi::InitOnce(device.Get(), writer.Get(), desc.OutputWindow, desc.BufferDesc.Format);
-                    static IDXGISwapChain* reported = nullptr;
-                    if (ready && reported != swapChain) {
-                        reported = swapChain;
-                        D5_LOG_INFO(L"ImGui late-injection writer recovered: chain=%p buffer=%p queue=%p; "
-                            L"submitted PRESENT barrier, UI fenced before native Present; native buffer ownership verified",
-                            swapChain, buffer.Get(), writer.Get());
-                    }
+        if (finalAllowed) {
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> image;
+            const UINT index = chain3 ? chain3->GetCurrentBackBufferIndex() : 0;
+            if (g_state.enabled.load() && SUCCEEDED(swapChain->GetBuffer(index, IID_PPV_ARGS(&image))))
+                applied = g_state.finalPost11.Execute(g_state.device11, image.Get(), g_state.selfModule, g_state.nrSettings.grading);
+            if (reShadeNeeded) applied = g_state.reshade.Render(swapChain, g_state.device11, nullptr,
+                g_state.selfModule, g_state.enabled.load()) || applied;
+        }
+        nativeQueueReady = native;
+        if (drawUi) {
+            ID3D11DeviceContext* context = nullptr;
+            g_state.device11->GetImmediateContext(&context);
+            ready = ReUi::InitOnce11(g_state.device11, context, desc.OutputWindow, desc.BufferDesc.Format);
+            if (context) context->Release();
+        }
+    } else if (g_state.api == GraphicsApi::D3D12) {
+        Microsoft::WRL::ComPtr<ID3D12Resource> buffer;
+        Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue;
+        if (chain3) {
+            const UINT index = chain3->GetCurrentBackBufferIndex();
+            if (originalGet) originalGet(swapChain, index, IID_PPV_ARGS(&buffer));
+            else swapChain->GetBuffer(index, IID_PPV_ARGS(&buffer));
+        }
+        UINT bytes = sizeof(ID3D12CommandQueue*);
+        swapChain->GetPrivateData(NR_PRESENT_QUEUE, &bytes, queue.GetAddressOf());
+        if (!queue && buffer && !g_state.scalerActive.load()) {
+            auto& tracker = PresentWriterTracker::Get();
+            tracker.WatchBuffer(buffer.Get());
+            queue = tracker.Acquire(buffer.Get(), NgxEavesdrop::Get().FrameGenerationActive(0), native);
+        }
+        if (queue) {
+            Microsoft::WRL::ComPtr<ID3D12Device> queueDevice, bufferDevice;
+            if (buffer) buffer->GetDevice(IID_PPV_ARGS(&bufferDevice));
+            if (SUCCEEDED(queue->GetDevice(IID_PPV_ARGS(&queueDevice)))) {
+                nativeQueueReady = native && bufferDevice.Get() == queueDevice.Get() &&
+                    queue->GetDesc().Type == D3D12_COMMAND_LIST_TYPE_DIRECT;
+                if (finalAllowed && nativeQueueReady) {
+                    if (g_state.enabled.load()) applied = g_state.finalPost12.Execute(buffer.Get(), D3D12_RESOURCE_STATE_PRESENT,
+                        queue.Get(), g_state.selfModule, g_state.nrSettings.grading);
+                    if (reShadeNeeded) applied = g_state.reshade.Render(swapChain, queueDevice.Get(), queue.Get(),
+                        g_state.selfModule, g_state.enabled.load()) || applied;
                 }
-            }
-            static unsigned missingQueueReports = 0;
-            static IDXGISwapChain* lastMissingQueueChain = nullptr;
-            if (!ready && lastMissingQueueChain != swapChain && missingQueueReports < 4) {
-                lastMissingQueueChain = swapChain;
-                ++missingQueueReports;
-                D5_LOG_INFO(L"ImGui waiting for confirmed presentation queue: chain=%p hwnd=%p; "
-                    L"late-load submission queue alone does not establish FG/UI ownership",
-                    swapChain, desc.OutputWindow);
+                if (drawUi) ready = ReUi::InitOnce(queueDevice.Get(), queue.Get(), desc.OutputWindow, desc.BufferDesc.Format);
             }
         }
+        static unsigned missingQueueReports = 0;
+        static IDXGISwapChain* lastMissingQueueChain = nullptr;
+        if (!queue && lastMissingQueueChain != swapChain && missingQueueReports < 4) {
+            lastMissingQueueChain = swapChain; ++missingQueueReports;
+            D5_LOG_INFO(L"DXL output waiting for confirmed presentation queue: chain=%p hwnd=%p; "
+                L"late-load submission queue alone does not establish FG/output ownership", swapChain, desc.OutputWindow);
+        }
     }
-    if (!ready) return;
+    if (nativeQueueReady) g_state.finalPresentation.NativeReady(now);
+    if (applied) {
+        g_state.finalPostLastApplied = now;
+        const auto frames = ActiveFinalFilter().GradingCount();
+        if (frames <= 3 || frames % 600 == 0) D5_LOG_INFO(
+            L"DXL final output: chain=%p frames=%llu native display buffer; LUT/filters after game pipeline",
+            swapChain, (unsigned long long)frames);
+    }
+    if (!drawUi || !ready) return;
     ReUi::SetUiOpen(&g_uiOpen);
     if (!g_uiInitialised) {
         g_uiInitialised = true;
         UiPushToastLong("DXL ready - DLSS eXtended Loader");
     }
-    if (!g_uiInitialised) return;
-
     if (!UiMayDraw()) return;
+    if (!native) scope.MarkUpstreamUi();
     ReUi::FramePresent(swapChain, [closeOnEscape] {
         UiDrawToasts();
         if (g_uiOpen.load(std::memory_order_relaxed)) UiBuildPanel(closeOnEscape);
@@ -3191,7 +3301,8 @@ bool BeginLegacyFrame(GraphicsApi api, HWND window) noexcept {
     ApplyPendingSettings();
     g_legacyCloseOnEscape = UiAdvanceFrameInput() || g_legacyCloseOnEscape;
     if (count == 1 || count % 120 == 0) g_publisher.Publish();
-    return (g_state.enabled.load() && g_state.nrSettings.enabled) ||
+    return g_state.reshade.Needed(g_state.selfModule) ||
+        (g_state.enabled.load() && (g_state.nrSettings.enabled || g_state.nrSettings.grading.AnyActive())) ||
         (!g_state.noUiPresent && (g_uiOpen.load() || UiAnyToastActive()));
 }
 
@@ -3204,7 +3315,7 @@ bool ProcessLegacyFrame(ID3D11Device* device, ID3D11Texture2D* image,
     D3D11_TEXTURE2D_DESC desc{}; image->GetDesc(&desc);
     g_state.width = desc.Width; g_state.height = desc.Height;
     bool processed = false;
-    if (g_state.enabled.load() && g_state.nrSettings.enabled) {
+    if (g_state.enabled.load() && (g_state.nrSettings.enabled || g_state.nrSettings.grading.AnyBasicActive())) {
         if (!g_state.nr11Tried) {
             g_state.nr11Tried = true;
             if (!g_state.nrFilter11.Initialize(device, g_state.selfModule))
@@ -3212,9 +3323,17 @@ bool ProcessLegacyFrame(ID3D11Device* device, ID3D11Texture2D* image,
         }
         if (g_state.nrFilter11.IsInitialized() && !g_state.nrFilter11.IsDisabled()) {
             UpdateSemanticMask();
-            processed = g_state.nrFilter11.Execute(image, g_state.nrSettings);
+            processed = g_state.nrFilter11.Execute(image, SceneColorSettings(g_state.nrSettings));
         }
     }
+    if (g_state.enabled.load() && GetTickCount64() >= g_state.uiPauseUntil &&
+            g_state.uiPauseFrames <= 0 && g_state.nrSettings.grading.AnyFinalActive()) {
+        const bool finalApplied = g_state.finalPost11.Execute(device, image, g_state.selfModule, g_state.nrSettings.grading);
+        if (finalApplied) g_state.finalPostLastApplied = GetTickCount64();
+        processed = finalApplied || processed;
+    }
+    if (GetTickCount64() >= g_state.uiPauseUntil && g_state.uiPauseFrames <= 0)
+        processed = g_state.reshade.RenderTexture11(device, image, g_state.selfModule, g_state.enabled.load()) || processed;
     if (!g_state.noUiPresent) {
         ID3D11DeviceContext* context = nullptr; device->GetImmediateContext(&context);
         const bool ready = ReUi::InitOnce11(device, context, window, desc.Format);
@@ -3386,21 +3505,24 @@ void ObservePresentChain(IDXGISwapChain* chain) {
 }
 
 // Present1 can forward to Present, and wrappers can call a native chain.
-// Only the outer presentation callback performs NR/UI work.
-static thread_local unsigned g_presentDepth = 0;
-struct PresentScope { PresentScope() { ++g_presentDepth; } ~PresentScope() { --g_presentDepth; } };
+// NR and input advance on the outer callback. Independent final effects/UI
+// can run on each physical native output below a wrapper.
 HRESULT STDMETHODCALLTYPE HookedPresent(
     PresentFn original, IDXGISwapChain* swapChain, UINT syncInterval, UINT flags) {
-    PresentScope scope;
-    if (g_presentDepth > 1 || (flags & DXGI_PRESENT_TEST) || IsTeardownRequested())
+    FinalPresentScope scope;
+    if ((flags & DXGI_PRESENT_TEST) || IsTeardownRequested())
         return original(swapChain, syncInterval, flags);
+    if (!scope.Outer()) {
+        UiFramePresent(swapChain, scope);
+        return original(swapChain, syncInterval, flags);
+    }
     ApplyPendingSettings();
     if (!DetectApiFromSwapChain(swapChain)) return original(swapChain, syncInterval, flags);
     ObservePresentChain(swapChain);
     const bool fg = NgxEavesdrop::Get().FrameGenerationActive(0);
     auto& watchdog = FreezeWatchdog::Get();
     if (!fg) { watchdog.PresentEnter(); OnPresent(swapChain); }
-    if (!g_state.noUiPresent) UiFramePresent(swapChain);
+    UiFramePresent(swapChain, scope);
     if (!fg) watchdog.Mark(Stage::PresentOriginal);
     const HRESULT hr = original(swapChain, syncInterval, flags);
     if (!fg) watchdog.PresentExit();
@@ -3410,16 +3532,20 @@ HRESULT STDMETHODCALLTYPE HookedPresent(
 HRESULT STDMETHODCALLTYPE HookedPresent1(
     Present1Fn original, IDXGISwapChain1* swapChain, UINT syncInterval, UINT flags,
     const DXGI_PRESENT_PARAMETERS* params) {
-    PresentScope scope;
-    if (g_presentDepth > 1 || (flags & DXGI_PRESENT_TEST) || IsTeardownRequested())
+    FinalPresentScope scope;
+    if ((flags & DXGI_PRESENT_TEST) || IsTeardownRequested())
         return original(swapChain, syncInterval, flags, params);
+    if (!scope.Outer()) {
+        UiFramePresent(swapChain, scope);
+        return original(swapChain, syncInterval, flags, params);
+    }
     ApplyPendingSettings();
     if (!DetectApiFromSwapChain(swapChain)) return original(swapChain, syncInterval, flags, params);
     ObservePresentChain(swapChain);
     const bool fg = NgxEavesdrop::Get().FrameGenerationActive(0);
     auto& watchdog = FreezeWatchdog::Get();
     if (!fg) { watchdog.PresentEnter(); OnPresent(swapChain); }
-    if (!g_state.noUiPresent) UiFramePresent(swapChain);
+    UiFramePresent(swapChain, scope);
     if (!fg) watchdog.Mark(Stage::PresentOriginal);
     const HRESULT hr = original(swapChain, syncInterval, flags, params);
     if (!fg) watchdog.PresentExit();
@@ -3433,7 +3559,7 @@ HRESULT STDMETHODCALLTYPE HookedPresent1(
 HRESULT STDMETHODCALLTYPE HookedGetBuffer(
 	IDXGISwapChain* swapChain, UINT index, REFIID riid, void** surface) {
 	// FG 下纯转发：真超分代理已退场（SR 本来就该关），不碰 GetBuffer
-	if (NgxEavesdrop::Get().FrameGenerationActive(0)) {
+	if (ReShadeBridge::InternalCall() || NgxEavesdrop::Get().FrameGenerationActive(0)) {
 		return SwapOriginal(swapChain, VT_SWAPCHAIN_GET_BUFFER, g_originalGetBuffer)(swapChain, index, riid, surface);
 	}
 	if (swapChain == g_state.scaledSwapChain && g_state.scaler.IsActive()) {
@@ -3451,7 +3577,7 @@ HRESULT STDMETHODCALLTYPE HookedGetBuffer(
 // 这是真超分唯一"撒谎"的地方，也是它比 DLAA 风险高的原因。
 HRESULT STDMETHODCALLTYPE HookedGetDesc(
 	IDXGISwapChain* swapChain, DXGI_SWAP_CHAIN_DESC* desc) {
-	if (NgxEavesdrop::Get().FrameGenerationActive(0)) {
+	if (ReShadeBridge::InternalCall() || NgxEavesdrop::Get().FrameGenerationActive(0)) {
 		return SwapOriginal(swapChain, VT_SWAPCHAIN_GET_DESC, g_originalGetDesc)(swapChain, desc);
 	}
 	static std::atomic<bool> logged{ false };
@@ -3470,7 +3596,7 @@ HRESULT STDMETHODCALLTYPE HookedGetDesc(
 
 HRESULT STDMETHODCALLTYPE HookedGetDesc1(
 	IDXGISwapChain1* swapChain, DXGI_SWAP_CHAIN_DESC1* desc) {
-	if (NgxEavesdrop::Get().FrameGenerationActive(0)) {
+	if (ReShadeBridge::InternalCall() || NgxEavesdrop::Get().FrameGenerationActive(0)) {
 		return SwapOriginal(swapChain, VT_SWAPCHAIN_GET_DESC1, g_originalGetDesc1)(swapChain, desc);
 	}
 	const HRESULT hr = SwapOriginal(swapChain, VT_SWAPCHAIN_GET_DESC1, g_originalGetDesc1)(swapChain, desc);
@@ -3587,7 +3713,8 @@ HRESULT ResizeTracked(
 	IDXGISwapChain* swapChain, UINT bufferCount, UINT width, UINT height,
 	DXGI_FORMAT format, UINT flags, Resize&& resize) {
     { std::lock_guard<std::recursive_mutex> lock(g_nrStateMutex);
-      if (!ReUi::WaitIdle()) return DXGI_ERROR_WAS_STILL_DRAWING; }
+      if (!ReUi::WaitIdle() || !g_state.finalPost12.WaitIdle()) return DXGI_ERROR_WAS_STILL_DRAWING;
+      g_state.reshade.BeforeResize(swapChain); }
     ObservePresentChain(swapChain);
     FrameGenSwapChains::Creation pending(bufferCount);
     // FG retains control of resizing; observe only after it succeeds.
@@ -3654,8 +3781,18 @@ HRESULT STDMETHODCALLTYPE HookedResizeBuffers1(IDXGISwapChain3* swapChain, UINT 
     UINT width, UINT height, DXGI_FORMAT format, UINT flags,
     const UINT* nodeMasks, IUnknown* const* presentQueues) {
     return ResizeTracked(swapChain, bufferCount, width, height, format, flags, [&] {
-        return SwapOriginal(swapChain, VT_SWAPCHAIN_RESIZE_BUFFERS1, g_originalResizeBuffers1)(
+        const auto hr = SwapOriginal(swapChain, VT_SWAPCHAIN_RESIZE_BUFFERS1, g_originalResizeBuffers1)(
             swapChain, bufferCount, width, height, format, flags, nodeMasks, presentQueues);
+        if (SUCCEEDED(hr) && presentQueues && bufferCount) {
+            // ResizeBuffers1 may move presentation to a different queue. A
+            // creation-time queue must not outlive this ownership change.
+            IUnknown* shared = presentQueues[0];
+            for (UINT i = 1; i < bufferCount; ++i) if (presentQueues[i] != shared) { shared = nullptr; break; }
+            swapChain->SetPrivateDataInterface(NR_PRESENT_QUEUE, nullptr);
+            if (shared) RememberPresentQueue(swapChain, shared);
+            // Per-buffer/multi-queue chains recover fresh writer evidence.
+        }
+        return hr;
     });
 }
 
@@ -3665,13 +3802,14 @@ HRESULT STDMETHODCALLTYPE HookedCreateSwapChainForHwnd(
 	const DXGI_SWAP_CHAIN_FULLSCREEN_DESC* fullscreenDesc,
 	IDXGIOutput* restrictToOutput, IDXGISwapChain1** swapChain) {
 	// 这是我们自己的探测链，纯转发 —— 别当成游戏建链记进日志和面包屑
-	if (g_creatingProbe.load(std::memory_order_relaxed)) {
+	if (g_creatingProbe.load(std::memory_order_relaxed) || ReShadeBridge::InternalCall()) {
 		return g_originalCreateSwapChainForHwnd(factory, device, hwnd, desc,
 			fullscreenDesc, restrictToOutput, swapChain);
 	}
     if (!AcceptDxgiCreation(device, hwnd, desc ? desc->Width : 0, desc ? desc->Height : 0))
         return g_originalCreateSwapChainForHwnd(factory, device, hwnd, desc,
             fullscreenDesc, restrictToOutput, swapChain);
+    { std::lock_guard<std::recursive_mutex> lock(g_nrStateMutex); g_state.reshade.BeforeCreate(hwnd); }
 
 	// D3D12 下这个 pDevice 就是 command queue —— 这是拿到它的唯一正规途径。
 	// **必须在 FG 检测之前抓**：开着 FG 启动游戏时第一次 swapchain 就是
@@ -3814,12 +3952,13 @@ HRESULT STDMETHODCALLTYPE HookedCreateSwapChain(
 	IDXGIFactory* factory, IUnknown* device, DXGI_SWAP_CHAIN_DESC* desc,
 	IDXGISwapChain** swapChain) {
 	// 探测设备走的正是这条老接口，必须挡住 —— 否则日志里会出现一条 8x8 的假线索
-	if (g_creatingProbe.load(std::memory_order_relaxed)) {
+	if (g_creatingProbe.load(std::memory_order_relaxed) || ReShadeBridge::InternalCall()) {
 		return g_originalCreateSwapChain(factory, device, desc, swapChain);
 	}
     if (!AcceptDxgiCreation(device, desc ? desc->OutputWindow : nullptr,
             desc ? desc->BufferDesc.Width : 0, desc ? desc->BufferDesc.Height : 0))
         return g_originalCreateSwapChain(factory, device, desc, swapChain);
+    { std::lock_guard<std::recursive_mutex> lock(g_nrStateMutex); g_state.reshade.BeforeCreate(desc ? desc->OutputWindow : nullptr); }
 
 	if (device && !g_state.capturedQueue) {
 		ID3D12CommandQueue* queue = nullptr;
@@ -4222,6 +4361,7 @@ DWORD WINAPI InitThread(LPVOID) {
     SetTeardownExtraCleanup(&CleanupDxl);
     CommandListTracker::Get().SetResetObserver([](void* ctx, ID3D12GraphicsCommandList* list) noexcept {
         PresentWriterTracker::Get().Reset(list);
+        g_state.nrFilter.NotifyGradingReset(list);
         static_cast<SegMaskFilter*>(ctx)->NotifyReset(list);
     }, &g_state.segMask);
 	g_startupDiagnostics.Mark(StartupDiagnostics::LogOpenEntered);

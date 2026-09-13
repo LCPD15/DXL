@@ -64,5 +64,15 @@ echo Compiling ComputePasses : RatioApplyMain
 if errorlevel 1 exit /b 1
 
 echo.
+echo Compiling ColorGrading : GradeMain
+"%FXC%" /nologo /T cs_5_0 /E GradeMain /O3 /Qstrip_debug /Qstrip_reflect ^
+  /Fh "%OUT%\ColorGrading.h" /Vn g_colorGradingCs "%SRC%\ColorGrading.hlsl"
+if errorlevel 1 exit /b 1
+
+echo Compiling Bloom : BloomDownsample
+"%FXC%" /nologo /T cs_5_0 /E BloomDownsample /O3 /Qstrip_debug /Qstrip_reflect ^
+  /Fh "%OUT%\Bloom.h" /Vn g_bloomDownsampleCs "%SRC%\Bloom.hlsl"
+if errorlevel 1 exit /b 1
+
 echo OK: %OUT%
 exit /b 0

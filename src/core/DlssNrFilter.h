@@ -22,9 +22,11 @@
 #include <windows.h>
 #include <d3d12.h>
 #include <cstdint>
+#include <mutex>
 
 #include "GpuImage.h"
 #include "ComputePasses.h"
+#include "ColorGrading.h"
 #include "OpticalFlow.h"
 #include "SemanticMask.h"
 #include "../common/IpcProtocol.h"
@@ -38,6 +40,7 @@ namespace DXL {
 // 否则对照 renodx / Magpie 的行为时会多一层翻译。
 struct NrSettings {
 	bool enabled = false;
+	ColorGradingSettings grading;
 
 	int preset = 0;              // DLSSNR.Hint.Render.Preset
 	// 默认 2 = Cinematic（用户拍板的新游戏默认：电影风格）
@@ -230,7 +233,7 @@ public:
 	// The filter drains its own submissions before adopting the presentation queue.
 	bool SetPresentQueue(ID3D12CommandQueue* queue) noexcept;
 
-	NrMode Mode() const noexcept { return _mode; }
+	NrMode Mode() const noexcept { return _runNr ? _mode : _gradingMode; }
 
 	// colorSource 和 dest 可以是同一块资源（原地处理 backbuffer），
 	// 也可以让 dest 指向 Handoff()，把结果留在交接纹理里给下一级滤镜。
@@ -262,6 +265,7 @@ public:
 	// _fullOut 是比值放大之后的全分辨率结果，尺寸和不降分辨率时完全一样，
 	// 所以上层什么都不用改。
 	GpuImage Handoff() const noexcept {
+		if (!_runNr) return { _gradingOutput, D3D12_RESOURCE_STATE_UNORDERED_ACCESS };
 		return { _scaled && _fullOut ? _fullOut : _output,
 			D3D12_RESOURCE_STATE_UNORDERED_ACCESS };
 	}
@@ -325,13 +329,20 @@ public:
 		_dumpForce = false;
 	}
 
-	bool IsReady() const noexcept { return _feature != nullptr; }
+	bool IsReady() const noexcept { return _runNr && _feature != nullptr; }
+	bool GradingReady() const noexcept { return _gradingReady; }
+	uint64_t GradingCount() const noexcept { return _gradingCount; }
+	const char* GradingError() const noexcept { return _grading.LastError(); }
+	// Submission/reset observers only touch the small lifecycle lock. They must
+	// remain callable while another thread waits under the NR render-state lock.
+	void NotifyGradingSubmitted(UINT count, ID3D12CommandList* const* lists) noexcept;
+	void NotifyGradingReset(ID3D12GraphicsCommandList* list) noexcept;
 	bool IsDisabled() const noexcept { return _disabled; }
 	uint32_t Width() const noexcept { return _width; }
 	uint32_t Height() const noexcept { return _height; }
 	uint64_t EvaluateCount() const noexcept { return _evaluateCount; }
 	uint64_t ModelCallCount() const noexcept { return _modelCallCount; }
-	int LiveLayerCount() const noexcept { return _feature ? _settings.trueLayers : 0; }
+	int LiveLayerCount() const noexcept { return _runNr && _feature ? _settings.trueLayers : 0; }
 	uint64_t FailureCount() const noexcept { return _failureCount; }
 	// 界面上常驻的 DLSSNR 耗时读数。样本数为 0 时返回 0，UI 据此显示"—"。
 	float RecentGpuMs() const noexcept { return float(_timingEmaMs); }
@@ -374,7 +385,15 @@ private:
 		ID3D12CommandAllocator* allocator = nullptr;
 		ID3D12GraphicsCommandList* commandList = nullptr;
 		uint64_t fenceValue = 0;
+		ColorGradingFrame grading;
 	};
+	bool PrepareGrading(uint32_t width, uint32_t height, DXGI_FORMAT format,
+		NrMode mode) noexcept;
+	bool RecordGrading(ID3D12GraphicsCommandList* list, const GpuImage& source,
+		const GpuImage& destination, bool inputLinear, ColorGradingFrame& frame) noexcept;
+	bool ExecuteGrading(const GpuImage& source, const GpuImage& destination) noexcept;
+	bool ExecuteGradingOnList(ID3D12GraphicsCommandList* list,
+		const NrEvaluateInput& input) noexcept;
 
 	// 游戏的矢量到底能不能重采样。
 	//
@@ -472,6 +491,20 @@ private:
 
 	ID3D12Device* _device = nullptr;
 	ID3D12CommandQueue* _queue = nullptr;
+	HMODULE _selfModule = nullptr;
+	bool _runNr = false;
+	ColorGrading _grading;
+	ColorGradingFrame _evaluateGrading;
+	std::mutex _gradingLifecycleMutex;
+	ID3D12GraphicsCommandList* _gradingRecordedList = nullptr;
+	bool _gradingDiscarded = false;
+	ID3D12Resource* _gradingInput = nullptr;
+	ID3D12Resource* _gradingOutput = nullptr;
+	uint32_t _gradingWidth = 0, _gradingHeight = 0;
+	DXGI_FORMAT _gradingFormat = DXGI_FORMAT_UNKNOWN;
+	NrMode _gradingMode = NrMode::None;
+	bool _gradingReady = false;
+	uint64_t _gradingCount = 0;
 
 	// snippet DLL 及其导出
 	HMODULE _snippet = nullptr;
@@ -481,7 +514,9 @@ private:
 	void* _releaseFeature = nullptr;
 	void* _shutdown = nullptr;
 	void** _getModuleFileNameSlot = nullptr;   // 被我们改掉的 IAT 槽位
+	bool _ownsModuleNameSpoof = false;
 	bool _snippetInitialized = false;
+	bool _snippetLoadAttempted = false;
 
 	NVSDK_NGX_Handle* _feature = nullptr;
 	NVSDK_NGX_Parameter* _parameters = nullptr;

@@ -18,7 +18,7 @@ void StartUpdateAction(const std::string& action, const std::string& expected = 
         const auto request=job/L"request.json";
         const auto result=job/L"result.json";
         const auto ready=job/L"ready.json";
-        const std::string json="{\"action\":\""+action+"\",\"current\":\"0.5\",\"cache\":"+JsonQuoted(cache.wstring())+
+        const std::string json="{\"action\":\""+action+"\",\"current\":\"0.6\",\"cache\":"+JsonQuoted(cache.wstring())+
             ",\"expected\":"+JsonQuoted(Utf8ToWide(expected))+",\"install\":"+JsonQuoted(ExeDir().wstring())+",\"parentPid\":"+std::to_string(GetCurrentProcessId())+
             ",\"waitForReady\":true,\"lang\":\""+(g_uiLang.load()==2?"en":"zh")+"\"}";
         if (!WriteFileUtf8(request,json)) throw std::runtime_error("Cannot save update request");

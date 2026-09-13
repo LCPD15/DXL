@@ -16,8 +16,9 @@ source, under DXL_WORKSPACE/dependencies/. Never commit them.
 | YOLO11n-seg weights | https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n-seg.pt | external model work directory | AGPL-3.0 or applicable Enterprise license |
 | YOLO export tools | https://github.com/ultralytics/ultralytics | external Python environment | AGPL-3.0; https://www.ultralytics.com/license |
 | NR runtime | https://github.com/SAOG0721/Magpie/releases | dependencies/runtime/nvngx_dlssnr.dll | Community source reference only, NOT an NVIDIA authorization; no authorized download for the exact modified file has been verified |
+| ReShade 6.8.0 | https://github.com/crosire/reshade/tree/18deaa52de0c425a78b329e9cb3c497281cd00ec | headers: third_party/reshade/include; runtime: dependencies/reshade/runtime/DXL-ReShade.dll | BSD-3-Clause and included dependency notices; private no-hook host build |
 
-## Build DXL 0.2
+## Build DXL 0.6
 
 Install Visual Studio 2022 Build Tools with the C++ x64 tools and a Windows SDK.
 Use PowerShell from the source root. Keep DXL_WORKSPACE outside the checkout:
@@ -25,9 +26,10 @@ Use PowerShell from the source root. Keep DXL_WORKSPACE outside the checkout:
 ```powershell
 $env:DXL_WORKSPACE = 'D:\DXL-Workspace'
 ./scripts/fetch-deps.ps1
+./scripts/build_reshade_runtime.ps1
 # Prepare the runtime and model inputs described below, then:
 ./scripts/build_dxl.ps1 -Runtime Lean -Test
-./scripts/release_dxl.ps1 -SourceDir "$env:DXL_WORKSPACE/build/dxl-0.2" -OutDir 'D:\DXL-release/DXL-v0.2'
+./scripts/release_dxl.ps1 -SourceDir "$env:DXL_WORKSPACE/build/dxl-0.6" -OutDir 'D:\DXL-release/DXL-v0.6'
 ```
 
 The source includes FG compatibility and runtime route switching. No private
@@ -88,3 +90,21 @@ runtime DLLs. Corresponding HLSL is included. Compute shaders can be regenerated
 with scripts/build-shaders.cmd and the Windows SDK. AMD optical flow shader source
 and the generated headers retain the AMD notice. Regenerate them with
 scripts/build_optical_shaders.ps1; temporary compiler output stays outside source.
+
+## ReShade FX runtime
+
+Run `scripts/build_reshade_runtime.ps1` before building a complete package. It
+downloads immutable ReShade 6.8.0 source and its pinned submodules to the external
+workspace, applies the documented DXL hosting changes, builds an x64 DLL with
+Visual Studio and the Windows SDK, and stages it in
+`dependencies/reshade/runtime/DXL-ReShade.dll`. Python with pip is needed for the
+upstream GL/Vulkan loader source generator. This dependency is a separate DLL,
+not an installed game-folder ReShade proxy or executable add-on loader.
+
+The SDK headers and provenance are in `third_party/reshade/`. The source build
+recipe is `scripts/prepare_reshade_runtime.py`; its private entry point is
+`scripts/reshade_private_entry.cpp`. The original effect parser, compiler and
+rendering implementation are retained. DXL owns configuration, UI, presentation,
+updates and input, so the hosted runtime installs no automatic hooks. Downloaded
+sources, build objects, compiled DLLs and shader caches remain outside the source
+checkout. `sources.json` in the dependency folder records source archive hashes.

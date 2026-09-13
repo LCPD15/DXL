@@ -49,6 +49,7 @@ public:
 	bool IsInitialized() const noexcept { return _initialized; }
 	bool IsDisabled() const noexcept { return _disabled; }
 	uint64_t EvaluateCount() const noexcept { return _evaluateCount; }
+	uint64_t GradingCount() const noexcept { return _filter12.GradingCount(); }
 	const char* LastError() const noexcept { return _lastError; }
 	// 耗时透传：真正计时的是桥接里的 D3D12 滤镜（浮层/OSD 显示用，
 	// core 的 FeedOverlay 在 D3D11 上读这里而不是 g_state.nrFilter）。
