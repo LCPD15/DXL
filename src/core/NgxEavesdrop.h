@@ -124,6 +124,8 @@ public:
 	void SetDevice(ID3D12Device* device) noexcept;
 	void SetEvaluateMode(bool enabled) noexcept { _evaluateMode.store(enabled); }
 	bool EvaluateMode() const noexcept { return _evaluateMode.load(); }
+	void SetFinalOutputOnly(bool enabled) noexcept { _finalOutputOnly.store(enabled); }
+	bool FinalOutputOnly() const noexcept { return _finalOutputOnly.load(); }
 
 	// 换链暂停：从现在起 ms 毫秒内不往游戏的命令列表拷深度/矢量。
 	//
@@ -315,6 +317,7 @@ public:
 
 private:
 	std::atomic<bool> _evaluateMode{ false };
+	std::atomic<bool> _finalOutputOnly{ false };
 	NgxEavesdrop() = default;
 
 	bool _installed = false;

@@ -5,6 +5,8 @@
 #include "../src/ui/ProfileCommandRouting.h"
 #include "../src/ui/ProfileDeletion.h"
 #include "../src/common/NrParameterEdit.h"
+#include "../src/ui/NrPreferenceStore.h"
+#include <fstream>
 #include <limits>
 #include <shellapi.h>
 #include <cstdio>
@@ -72,6 +74,27 @@ int wmain() {
     Check(!EncodeNrEdit("nrTrueLayers",1.5,encoded), "fractional layer count");
     Check(!DecodeNrEdit(0xffffffff,decodedIndex,decodedValue), "invalid packed NR edit");
     std::puts("PASS NR parameter protocol: all bounds, identity, roundtrip and malformed input rejection");
+    Check(EncodeNrEdit("nrForceCompatibility", 1, encoded) && (encoded >> 24) == 32, "force edit appended without moving existing indices");
+    std::string prefs = R"({"nrForceCompatibility":true,"nrProcessingEnabled":false,"nrIntensity":0.37,"colorFxState":"quoted,} text"})";
+    Check(UpdateNrPreferenceText(prefs,"nrForceCompatibility",0),"offline recovery edits saved-on overlay");
+    Check(prefs.find("\"nrForceCompatibility\":false")!=std::string::npos && prefs.find("quoted,} text")!=std::string::npos,"off persists without damaging custom FX or other values");
+    Check(UpdateNrPreferenceText(prefs,"nrForceCompatibility",1) && prefs.find("\"nrProcessingEnabled\":true")!=std::string::npos,"enabling force also enables NR processing");
+    for (auto malformed : {R"({"nrForceCompatibility":true,"nrForceCompatibility":false})", "{truncated"}) {
+        std::string broken=malformed; Check(!UpdateNrPreferenceText(broken,"nrForceCompatibility",0),"ambiguous/truncated preferences rejected");
+    }
+    const auto prefRoot=std::filesystem::temp_directory_path()/(L"DXL-force-store-"+std::to_wstring(GetCurrentProcessId()));
+    Check(!std::filesystem::exists(prefRoot),"new preference fixture directory");
+    std::filesystem::create_directory(prefRoot);
+    struct PrefCleanup { std::filesystem::path root; ~PrefCleanup(){std::error_code ec;std::filesystem::remove_all(root,ec);} } prefCleanup{prefRoot};
+    {std::ofstream(prefRoot/L"a.exe.params.json") << prefs;}
+    {std::ofstream(prefRoot/L"b.exe.params.json") << "{\"nrForceCompatibility\":false}";}
+    {std::ofstream(prefRoot/L"c.exe.params.json") << "{\"nrIntensity\":0.5}";}
+    {std::ofstream(prefRoot/L"default.params.json") << prefs;}
+    const auto snapshot=ReadForcedNrPreferences(prefRoot);
+    Check(snapshot.find("\"a.exe.json\":true")!=std::string::npos && snapshot.find("\"b.exe.json\":false")!=std::string::npos,"startup snapshot reads both durable on and off");
+    Check(snapshot.find("c.exe")==std::string::npos && snapshot.find("default")==std::string::npos,"missing/default prefs do not override launcher settings");
+    std::puts("PASS forced NR preferences: offline recovery, activation, per-game disk snapshot, unrelated settings preserved and invalid JSON rejected");
+
 
     UINT mods = 0, key = 0;
     Check(ParseHotkey(L"Del", mods, key) && !mods && key == VK_DELETE, "bare Del");

@@ -1,3 +1,4 @@
+#include "../src/core/ForcedNrOutput.h"
 // Runs the actual signed NR snippet on an isolated NVIDIA device. No game injection.
 // --typeless reproduces v0.41's guide format; validation errors abort before submission.
 // --typeless-color reproduces Unity's RGBA8 typeless SR output; --rgba8-color is its typed control.
@@ -111,6 +112,8 @@ unsigned Errors(ID3D12InfoQueue* info) {
 int main(int argc, char** argv) try {
     setvbuf(stdout,nullptr,_IONBF,0);
     bool typeless=false, large=false, resetEveryFrame=false,present=false,directGuides=false,withSr=false,fenceWait=false,switchRoutes=false;
+    bool forcedFinal=false;
+    DXL::ForcedNrOutput12 forcedOutput;
     bool emptyCompute=false, switchLayers=false, typelessColor=false, rgba8Color=false, heaplessBindings=false, failureStreak=false, grading=false;
     float selfLayers=1.0f;
     int trueLayers=1, failLayer=0;
@@ -121,6 +124,7 @@ int main(int argc, char** argv) try {
         heaplessBindings |= !strcmp(argv[i],"--heapless-bindings");
         failureStreak |= !strcmp(argv[i],"--failure-streak");
         grading |= !strcmp(argv[i],"--grading");
+        forcedFinal |= !strcmp(argv[i],"--forced-final");
         if(!strncmp(argv[i],"--self-layers=",14)) selfLayers=float(atof(argv[i]+14));
         if(!strncmp(argv[i],"--true-layers=",14)) trueLayers=atoi(argv[i]+14);
         switchLayers |= !strcmp(argv[i],"--switch-layers");
@@ -134,18 +138,19 @@ int main(int argc, char** argv) try {
     }
     for(int i=1;i<argc;++i) emptyCompute |= !strcmp(argv[i],"--empty-compute");
     for(int i=1;i<argc;++i) { typeless |= !strcmp(argv[i],"--typeless"); large |= !strcmp(argv[i],"--4k"); resetEveryFrame |= !strcmp(argv[i],"--reset-every-frame"); present |= !strcmp(argv[i],"--present"); directGuides |= !strcmp(argv[i],"--direct-guides"); }
+    if(forcedFinal) { present=true; noGuides=true; selectedZero=true; }
     Check(!(present && directGuides),"direct guides test is for SR->NR only");
     for(int i=1;i<argc;++i) withSr |= !strcmp(argv[i],"--with-sr");
     for(int i=1;i<argc;++i) fenceWait |= !strcmp(argv[i],"--fence-wait");
     for(int i=1;i<argc;++i) switchRoutes |= !strcmp(argv[i],"--switch-routes");
-    Check(!switchRoutes || (!present && !directGuides && !withSr && !fenceWait),"switch test needs no other route flags");
+    Check(!switchRoutes || ((!present || forcedFinal) && !directGuides && !withSr && !fenceWait),"switch test needs no other route flags");
     float testScale=1.0f; bool switchScale=false;
     for(int i=1;i<argc;++i) {
         if(!strncmp(argv[i],"--scale=",8)) testScale=float(atof(argv[i]+8));
         switchScale |= !strcmp(argv[i],"--switch-scale");
     }
     Check(testScale>=0.5f && testScale<=1.0f,"scale must be 0.5..1");
-    Check(!switchScale || (!switchRoutes && !present && !fenceWait),"scale sweep uses standalone Evaluate");
+    Check(!switchScale || (!switchRoutes && (!present || forcedFinal) && !fenceWait),"scale sweep uses standalone Evaluate");
     if(switchRoutes) present=true;
     Check(!withSr || (directGuides && !present),"SR test needs --direct-guides");
     Check(!fenceWait || !present,"fence-wait is for external command lists");
@@ -317,7 +322,7 @@ int main(int argc, char** argv) try {
         if(switchScale && frame%routeSpan==0) {
             constexpr float scales[]{1.0f,0.75f,0.5f,0.75f,1.0f,0.5f,1.0f};
             settings.renderScale=scales[frame/routeSpan];
-            Check(nr.Prepare(W,H,colorFormat,settings,NrMode::AtEvaluate),"live scale Prepare");
+            Check(nr.Prepare(W,H,colorFormat,settings,present?NrMode::Present:NrMode::AtEvaluate),"live scale Prepare");
             flush();
             printf("SCALE SWITCH frame=%u scale=%.2f model=%ux%u output=%ux%u\n",frame,settings.renderScale,nr.Width(),nr.Height(),W,H);
             Check(nr.Width()==(settings.renderScale==1?W:(UINT(W*settings.renderScale)&~7u)),"actual NR scale dimensions");
@@ -411,7 +416,17 @@ int main(int argc, char** argv) try {
             ID3D12CommandList* prep[]{l.Get()}; q->ExecuteCommandLists(1,prep); flush();
             nr.SetExternalDepth(switchRoutes?nullptr:copy.Get(),GW,GH);
             nr.SetExternalMotion((switchRoutes||omitMotion)?nullptr:motion.Get(),GW,GH,float(GW),float(GH));
-            ran=nr.Execute({color.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS},{color.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS});
+            if(forcedFinal) {
+                // Feed an actual display-state image through the production helper.
+                HR(alloc->Reset()); HR(l->Reset(alloc.Get(),nullptr));
+                Barrier(l.Get(),color.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_PRESENT);
+                HR(l->Close()); ID3D12CommandList* toPresent[]{l.Get()}; q->ExecuteCommandLists(1,toPresent); flush();
+                ran=forcedOutput.Execute(nr,color.Get(),q.Get(),settings,frame==0);
+                HR(alloc->Reset()); HR(l->Reset(alloc.Get(),nullptr));
+                Barrier(l.Get(),color.Get(),D3D12_RESOURCE_STATE_PRESENT,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                HR(l->Close()); ID3D12CommandList* fromPresent[]{l.Get()}; q->ExecuteCommandLists(1,fromPresent); flush();
+                Check(!nr.UsingExternalDepth() && !nr.UsingExternalMotion(),"forced output consumed native guides");
+            } else ran=nr.Execute({color.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS},{color.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS});
             flush(); HR(alloc->Reset()); HR(l->Reset(alloc.Get(),nullptr));
         } else {
             CommandListStateScope gameEnvelope(l.Get());
@@ -434,7 +449,7 @@ int main(int argc, char** argv) try {
             Check(nr.ModelCallCount()==callsBefore+(debugMotion?0:nr.LiveLayerCount()),"model calls must equal true layers, independent of self layers");
             if(grading)Check(nr.GradingCount()==gradingBefore+1,"one grading pass must follow every processed frame");
             const auto opticalAfter=nr.OpticalStatus();
-            const bool expectOptical=settings.enabled && settings.opticalFlow && (selectedZero || (present?(switchRoutes||omitMotion):omitMotion));
+            const bool expectOptical=settings.enabled && settings.opticalFlow && (forcedFinal || selectedZero || (present?(switchRoutes||omitMotion):omitMotion));
             Check(opticalAfter.dispatches==opticalBefore+(expectOptical?1u:0u),"optical workload was not gated by native motion/checkbox");
             Check(opticalAfter.active==expectOptical,"optical status disagrees with selected motion");
         }

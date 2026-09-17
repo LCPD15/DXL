@@ -318,6 +318,11 @@
                             <p class="timing-warning" id="injectTimingWarning">若用自动模式启动游戏崩溃，请尝试兼容模式。</p>
                             <p class="hint" id="monitorTimingHint">从 Steam 等外部启动时，自动监控等待窗口稳定后加载；需要优先捕获原生 DLSS 时，请从工具启动游戏。</p>
                         </fieldset>
+                        <div class="row">
+                            <label class="row-label" for="nrForceCompatibility">强行兼容模式</label>
+                            <label class="switch"><input type="checkbox" id="nrForceCompatibility" data-key="nrForceCompatibility" aria-describedby="forcedNrHint"><span class="slider-track"></span></label>
+                        </div>
+                        <p class="hint" id="forcedNrHint">仅当游戏内开关 NR 无效时尝试使用。直接处理最终画面；与游戏内开关同步，按游戏保存。开启时同时启用 NR 与总开关；游戏未运行时也可关闭。</p>
 						<details class="explain">
 							<summary>注入时机怎么选</summary>
 							<p><b>自动 / 尽早</b>从工具启动时，优先在图形接口初始化前加载；自动模式对 GTA SA 重制版采用兼容加载。从外部启动时，自动模式等待窗口稳定。手动选择尽早会覆盖兼容策略，但可能与游戏初始化冲突。</p>

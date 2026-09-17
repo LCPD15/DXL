@@ -3,6 +3,8 @@
 	'use strict';
 
 	const EN = {
+        "强行兼容模式": "Force compatibility mode",
+        "仅当游戏内开关 NR 无效时尝试使用。直接处理最终画面；与游戏内开关同步，按游戏保存。开启时同时启用 NR 与总开关；游戏未运行时也可关闭。": "Try only if toggling NR in-game has no effect. Processes the final image; synced with the in-game switch and saved per game. Enabling it also turns on NR and all effects. You can turn it off while the game is closed.",
         "工具内调参": "Edit in launcher",
         "仅当游戏内浮层无法呼出时使用": "Use only when the in-game overlay cannot be opened",
         "修改实时保存；游戏运行时立即生效，处理分辨率与真叠层在松手后应用。": "Changes save automatically and apply live. Render scale and true layers apply when you release the slider.",

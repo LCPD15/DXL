@@ -906,7 +906,7 @@ NVSDK_NGX_Result ForwardEvaluate(
 	const auto entered = g_enteredEvaluate[slot].fetch_add(1, std::memory_order_relaxed);
 	if (!entered) D5_LOG_INFO(L"NGX Evaluate entered: slot=%u nativeUpscaler=%u",
 		slot, g_nativeUpscalerTarget[slot].load() ? 1 : 0);
-	if (IsTeardownRequested()) {
+	if (IsTeardownRequested() || NgxEavesdrop::Get().FinalOutputOnly()) {
 		const auto real = reinterpret_cast<EvaluateFeatureFn>(g_realEvaluate[slot].load(std::memory_order_acquire));
 		return real ? real(commandList, handle, parameters, callback) : NVSDK_NGX_Result_Fail;
 	}

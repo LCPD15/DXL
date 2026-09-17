@@ -38,6 +38,7 @@
 #include "UiLanguage.h"
 #include "Hotkey.h"
 #include "ProfileCommandRouting.h"
+#include "NrPreferenceStore.h"
 #include "ProfileDeletion.h"
 #include "../core/NvSmoothMotion.h"
 #include "GameListCleanup.h"
@@ -427,7 +428,8 @@ std::string ExtractPayload(std::string_view json) {
 void SendSettingsToUi() {
 	std::string json = ReadFileUtf8(SettingsPath());
 	if (json.empty()) json = "{}";
-	PostToUi("{\"type\":\"settings\",\"payload\":" + json + "}");
+	PostToUi("{\"type\":\"settings\",\"payload\":" + json +
+        ",\"forcedNrPreferences\":" + DXL::ReadForcedNrPreferences(ProfilesDir()) + "}");
 }
 
 void SendLauncherPreferencesToUi() {
@@ -639,6 +641,8 @@ void SendStatusToUi() {
 		// 参数版本号：只在游戏内浮层改参数时变。UI 靠它忽略自己推送的回声
 		// （见 IpcProtocol 里 nrParamVersion 的说明）。
 		AddNumber(json, "nrParamVersion", status.nrParamVersion);
+        if (status.nrForceCompatibilityState == 1 || status.nrForceCompatibilityState == 2)
+            AddBool(json, "nrParamForceCompatibility", status.nrForceCompatibilityState == 2);
 		AddNumber(json, "depthCandidates", status.depthCandidates);
 		AddNumber(json, "renderWidth", status.renderWidth);
 		AddNumber(json, "renderHeight", status.renderHeight);
@@ -1430,7 +1434,9 @@ void SendExtensionsToUi() {
 
 void HandleUiMessage(std::string_view json) {
 	const std::string type = ExtractStringField(json, "type");
-	if (type == "prepareProfileDeletion") {
+	if (type == "getForcedNrPreferences") {
+        PostToUi("{\"type\":\"forcedNrPreferences\",\"payload\":" + DXL::ReadForcedNrPreferences(ProfilesDir()) + "}");
+    } else if (type == "prepareProfileDeletion") {
         StartProfileDeletion(json);
     } else if (type == "checkUpdates") {
         if (!g_updateChecked) { g_updateChecked=true; StartUpdateAction("check"); }
@@ -1472,17 +1478,8 @@ void HandleUiMessage(std::string_view json) {
                 const auto path = ProfilesDir() / (expected + L".params.json");
                 auto text = ReadFileUtf8(path);
                 if (text.empty() && !std::filesystem::exists(path)) text = "{}";
-                const auto open = text.find('{'), close = text.find_last_of('}');
-                if (open == std::string::npos || close == std::string::npos) ok = false;
+                if (!DXL::UpdateNrPreferenceText(text, key, value)) ok = false;
                 else {
-                    const std::regex item("\\\"" + key + "\\\"\\s*:\\s*[^,}\\r\\n]+");
-                    const auto literal = DXL::NrEditSpecs[packed >> 24].boolean ? std::string(value != 0 ? "true" : "false") : std::to_string(value);
-                    const auto entry = "\"" + key + "\": " + literal;
-                    if (std::regex_search(text, item)) text = std::regex_replace(text, item, entry);
-                    else {
-                        const bool empty = text.find_first_not_of(" \t\r\n", open+1) == close;
-                        text.insert(open+1, "\n" + entry + (empty ? "" : ","));
-                    }
                     const auto temporary = path.wstring() + L".tmp";
                     ok = WriteFileUtf8(temporary, text) && MoveFileExW(temporary.c_str(), path.c_str(),
                         MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);

@@ -1,4 +1,4 @@
-﻿# Dependencies and build inputs
+# Dependencies and build inputs
 
 All downloaded SDKs, runtime files, weights and generated plans belong outside
 source, under DXL_WORKSPACE/dependencies/. Never commit them.
@@ -18,7 +18,7 @@ source, under DXL_WORKSPACE/dependencies/. Never commit them.
 | NR runtime | https://github.com/SAOG0721/Magpie/releases | dependencies/runtime/nvngx_dlssnr.dll | Community source reference only, NOT an NVIDIA authorization; no authorized download for the exact modified file has been verified |
 | ReShade 6.8.0 | https://github.com/crosire/reshade/tree/18deaa52de0c425a78b329e9cb3c497281cd00ec | headers: third_party/reshade/include; runtime: dependencies/reshade/runtime/DXL-ReShade.dll | BSD-3-Clause and included dependency notices; private no-hook host build |
 
-## Build DXL 0.6
+## Build DXL 0.7
 
 Install Visual Studio 2022 Build Tools with the C++ x64 tools and a Windows SDK.
 Use PowerShell from the source root. Keep DXL_WORKSPACE outside the checkout:
@@ -29,7 +29,7 @@ $env:DXL_WORKSPACE = 'D:\DXL-Workspace'
 ./scripts/build_reshade_runtime.ps1
 # Prepare the runtime and model inputs described below, then:
 ./scripts/build_dxl.ps1 -Runtime Lean -Test
-./scripts/release_dxl.ps1 -SourceDir "$env:DXL_WORKSPACE/build/dxl-0.6" -OutDir 'D:\DXL-release/DXL-v0.6'
+./scripts/release_dxl.ps1 -SourceDir "$env:DXL_WORKSPACE/build/dxl-0.7" -OutDir 'D:\DXL-release/DXL-v0.7'
 ```
 
 The source includes FG compatibility and runtime route switching. No private

@@ -63,6 +63,8 @@
 #include "NvSmoothMotion.h"
 #include "ColorGradingUi.h"
 #include "FinalPostProcess.h"
+#include "ForcedNrOutput.h"
+#include "ForcedNrUi.h"
 #include "FinalPresentScope.h"
 #include "ReShadeBridge.h"
 #include "ReShadeUi.h"
@@ -315,6 +317,12 @@ struct State {
 	// 的真凶）。所以落盘要写这个原始意图，不能被运行时状态污染。
 	bool wantAtEvaluate = true;
 	bool nrAutoRoute = true;
+    bool nrForceCompatibility = false;
+    ForcedNrOutput12 forcedOutput12;
+    ForcedNrBlock forcedBlock = ForcedNrBlock::Off;
+    uint64_t forcedFrames = 0, forcedLastApplied = 0;
+    bool forcedReset = true;
+    bool forcedRestorePending = false;
 	bool nrAutomaticHandoffBlocked = false; // route diagnostic, under g_nrStateMutex
 	// 夹具：第 N 次 present 时造一张假的"游戏矢量"（1286x724，和真实游戏一致），
 	// 让矢量重采样这条路在**开着调试层的测试目标**上真的跑起来。0 = 关。
@@ -364,6 +372,22 @@ const DlssNrFilter& ActiveNrFilter() noexcept {
 const DlssNrFilter& ActiveFinalFilter() noexcept {
     return UsesD3D11Bridge(g_state.api) ? g_state.finalPost11.Filter() : g_state.finalPost12.Filter();
 }
+void SetForcedCompatibility(bool enabled) noexcept {
+    if (g_state.nrForceCompatibility == enabled) return;
+    g_state.nrForceCompatibility = enabled;
+    g_state.forcedRestorePending = !enabled;
+    g_state.forcedFrames = g_state.forcedLastApplied = 0;
+    g_state.forcedReset = true;
+    g_state.forcedBlock = enabled ? ForcedNrBlock::WaitingOutput : ForcedNrBlock::Off;
+    g_state.nrAutomaticHandoffBlocked = false;
+    // Existing externally recorded commands must still retire before reuse.
+    NgxEavesdrop::Get().SetFinalOutputOnly(enabled);
+    NrRouteProbe::Get().Enable(!enabled && g_state.nrAtEvaluate && g_state.nrAutoRoute);
+    g_state.nrFilter.InvalidateOpticalHistory();
+    g_state.nrFilter11.InvalidateOpticalHistory();
+    D5_LOG_INFO(L"NR force compatibility: %s; final display image, no native guides, FG heuristic bypassed",
+        enabled ? L"ON" : L"OFF");
+}
 void UpdateSemanticMask() noexcept {
     const bool active = g_state.enabled.load() && g_state.nrSettings.enabled && g_state.semanticAvailable && g_state.nrSettings.semanticMask;
     g_state.segMask.SetActive(active);
@@ -406,6 +430,7 @@ void CleanupDxl() noexcept {
     ReUi::Shutdown();
     g_state.finalPost11.TeardownForExit();
     g_state.finalPost12.TeardownForExit();
+    g_state.forcedOutput12.Retire(g_state.nrFilter);
     if (evaluateIdle) {
         g_state.nrFilter11.TeardownForExit();
         g_state.nrFilter.TeardownForExit();
@@ -478,7 +503,9 @@ public:
 			(g_state.api != GraphicsApi::D3D12 && !UsesD3D11Bridge(g_state.api)) ? FeatureState::Unavailable :
 			g_state.nrAutomaticHandoffBlocked && g_state.enabled.load() &&
 				g_state.nrAtEvaluate && g_state.nrAutoRoute ? FeatureState::Standby :
-			ActiveNrFilter().EvaluateCount() ? FeatureState::Active :
+			g_state.nrForceCompatibility ? (g_state.forcedBlock == ForcedNrBlock::Running ? FeatureState::Active :
+                g_state.forcedBlock == ForcedNrBlock::Failed ? FeatureState::Failed : FeatureState::Standby) :
+            ActiveNrFilter().EvaluateCount() ? FeatureState::Active :
 			ActiveNrFilter().IsDisabled() ? FeatureState::Failed :
 			(UsesD3D11Bridge(g_state.api) ? g_state.nr11Tried && !g_state.nrFilter11.IsInitialized() : g_state.nrTried && !g_state.nrInitialized)
 				? FeatureState::Unavailable
@@ -524,7 +551,7 @@ public:
             const auto optical = ActiveNrFilter().OpticalStatus();
             _status->nrMotionSource = optical.active ? 2 : ActiveNrFilter().UsingExternalMotion() ? 1 : 0;
             _status->nrOpticalFlowMs = optical.active ? float(optical.gpuMs) : 0;
-            _status->nrRoute = g_state.nrAutomaticHandoffBlocked && g_state.enabled.load() &&
+            _status->nrRoute = g_state.nrForceCompatibility ? 1 : g_state.nrAutomaticHandoffBlocked && g_state.enabled.load() &&
                 g_state.nrSettings.enabled && g_state.nrAtEvaluate && g_state.nrAutoRoute ? 3 :
                 ActiveNrFilter().Mode() == NrMode::AtEvaluate ? 2 :
                 ActiveNrFilter().Mode() == NrMode::Present ? 1 : 0;
@@ -559,13 +586,13 @@ public:
 			_status->eavesdropMvScaleX = captured.mvScaleX;
 			_status->eavesdropMvScaleY = captured.mvScaleY;
 			_status->nrAtEvaluateFrames = eaves.PreEvaluateFrames();
-			_status->nrAtEvaluateWanted = g_state.nrAtEvaluate ? 1u : 0u;
+			_status->nrAtEvaluateWanted = g_state.nrAtEvaluate && !g_state.nrForceCompatibility ? 1u : 0u;
 			// 一帧都没处理到的话，说清楚卡在哪一步。**顺序 = 从最具体到最笼统**：
 			// 滤镜给的原因（格式/尺寸/NGX 报错）比"状态还没观察到"具体得多，而后者在
 			// 头几帧本来就必然发生，先报它会把真原因盖住。
 			_status->nrAtEvaluateBlocked =
 				uint32_t(Ipc::NrAtEvaluateBlock::None);
-			if (g_state.nrAtEvaluate && _status->nrAtEvaluateFrames == 0) {
+			if (g_state.nrAtEvaluate && !g_state.nrForceCompatibility && _status->nrAtEvaluateFrames == 0) {
 				const uint32_t filterBlock = ActiveNrFilter().LastBlock();
 				if (eaves.EvaluateSeen() == 0) {
 					// **判据是“抄到过几帧”，不是“挂上了几个钩子”。** 实测踩过：一次运行挂上了
@@ -616,7 +643,8 @@ public:
 		}
 		_status->evaluateCount = g_state.upscaler.EvaluateCount();
 		_status->evaluateFailures = g_state.upscaler.FailureCount();
-		_status->nrEvaluateCount = ActiveNrFilter().EvaluateCount();
+		_status->nrForceCompatibilityState = g_state.nrForceCompatibility ? 2u : 1u;
+		_status->nrEvaluateCount = g_state.nrForceCompatibility ? g_state.forcedFrames : ActiveNrFilter().EvaluateCount();
 		_status->nrEvaluateFailures = ActiveNrFilter().FailureCount();
 		_status->presentCount = g_state.presentCount.load(std::memory_order_relaxed);
 		_status->frameMs = g_state.frameMs;
@@ -979,7 +1007,8 @@ void ReloadSettings() noexcept {
 	g_state.nrAtEvaluate = canAtEvaluate;
 	NgxEavesdrop::Get().SetEvaluateMode(canAtEvaluate);
 	g_state.nrAutoRoute = reader.GetBool("nrAutoRoute", true);
-	NrRouteProbe::Get().Enable(canAtEvaluate && g_state.nrAutoRoute);
+	SetForcedCompatibility(reader.GetBool("nrForceCompatibility", false));
+	NrRouteProbe::Get().Enable(!g_state.nrForceCompatibility && canAtEvaluate && g_state.nrAutoRoute);
 
 	// 像素回读在这里 arm，**两条路共用** —— 这样 backbuffer 那条路（画面是好的）和
 	// evaluate 那条路（画面是灰的）能量出来直接对比。改一次设置就重新 arm 一次。
@@ -1591,7 +1620,7 @@ bool RunNrAtEvaluate(
 	// 开头就检查了，这条路跑在另一个线程上，所以要单独查一次。
 	if (!g_state.enabled.load(std::memory_order_relaxed)) return false;
 	outcome = Attempt::NrOff;
-	if (!g_state.nrAtEvaluate || (!g_state.nrSettings.enabled && !g_state.nrSettings.grading.AnyBasicActive())) return false;
+	if (g_state.nrForceCompatibility || !g_state.nrAtEvaluate || (!g_state.nrSettings.enabled && !g_state.nrSettings.grading.AnyBasicActive())) return false;
 	outcome = Attempt::Dormant;
 	if (g_state.nrAutoRoute && !NrRouteProbe::Get().UseEvaluate(GetTickCount64(),
 		NgxEavesdrop::Get().FrameGenerationActive(0))) return false;
@@ -1635,7 +1664,7 @@ bool RunNrAtEvaluate(
 	outcome = Attempt::Prepare;
 	if (!g_state.nrFilter.Prepare(frame.outputWidth, frame.outputHeight,
 		DXGI_FORMAT(frame.outputFormat), SceneColorSettings(g_state.nrSettings),
-		NrMode::AtEvaluate, g_state.nrAutoRoute)) {
+		NrMode::AtEvaluate, g_state.nrAutoRoute || g_state.forcedRestorePending)) {
 		return false;
 	}
 
@@ -1722,7 +1751,10 @@ bool RunNrAtEvaluate(
 			(unsigned long long)frame.frameSeq, (unsigned long long)n, g_state.nrFilter.LastBlock(),
 			(unsigned long long)g_state.nrFilter.EvaluateCount(), frame.outputFormat);
 	}
-	if (ran) NrRouteProbe::Get().Applied(GetTickCount64());
+	if (ran) {
+		g_state.forcedRestorePending = false;
+		NrRouteProbe::Get().Applied(GetTickCount64());
+	}
 	if (ran) {
 		// FG may bypass RunFilters altogether. Clear a menu handoff hold here
 		// only after real SR->NR recording succeeds, under the same NR lock.
@@ -1803,7 +1835,7 @@ static void TryInitNr() noexcept {
 	if (!injectAt || (nowMs >= injectAt && nowMs - injectAt < NR_INIT_DELAY_MS)) return;
 	// Display-buffer NR is standalone: games with SR disabled never evaluate SR.
 	// Only the SR->NR route needs a native SR call before it can process an image.
-	if (g_state.nrAtEvaluate && !g_state.nrAutoRoute && !NgxEavesdrop::Get().EvaluateSeen()) return;
+	if (!g_state.nrForceCompatibility && g_state.nrAtEvaluate && !g_state.nrAutoRoute && !NgxEavesdrop::Get().EvaluateSeen()) return;
 	if (g_state.nrTried) return;                       // 已试过（含失败）
 	if (g_state.nrInitBusy.exchange(true)) return;      // 另一个线程正在初始化
 	if (g_state.nrTried) {                              // 抢到锁后复查
@@ -1837,6 +1869,7 @@ void RememberPresentQueue(IDXGISwapChain* chain, IUnknown* device) {
 	}
 }
 void RunFilters11(IDXGISwapChain* swapChain) noexcept {
+    if (g_state.nrForceCompatibility) return;
     if (!g_state.enabled.load() || (!g_state.nrSettings.enabled && !g_state.nrSettings.grading.AnyBasicActive()) || !g_state.device11) return;
     if (GetTickCount64() < g_state.uiPauseUntil) return;
     if (!g_state.nr11Tried) {
@@ -1885,7 +1918,7 @@ void RunFilters(IDXGISwapChain* swapChain) noexcept {
 	const bool fgActive =
 		NgxEavesdrop::Get().FrameGenerationActive(1000);
 	if (fgActive && !g_state.nrAtEvaluate) return;
-	const bool autoRoute = g_state.nrAtEvaluate && g_state.nrAutoRoute;
+	const bool autoRoute = !g_state.nrForceCompatibility && g_state.nrAtEvaluate && g_state.nrAutoRoute;
 	UINT handoffBuffers = 0;
 	const bool uncertainHandoff = autoRoute && NgxEavesdrop::Get().FrameGenerationModuleLoaded() &&
 		FrameGenSwapChains::Get().AutomaticHandoffUncertain(swapChain, &handoffBuffers);
@@ -1908,7 +1941,7 @@ void RunFilters(IDXGISwapChain* swapChain) noexcept {
 			? "NR automatic handoff hold cleared: native SR returned or current chain uncertainty cleared."
 			: "NR automatic handoff hold cleared: NR is disabled.");
 	}
-	const bool presentNr = !fgActive && (!g_state.nrAtEvaluate || (autoRoute && routeStatus.present)) &&
+	const bool presentNr = !g_state.nrForceCompatibility && !fgActive && (!g_state.nrAtEvaluate || (autoRoute && routeStatus.present)) &&
 		EvaluateGpuGate::Get().IsIdle();
 	if (!presentNr && !proxyLive && !g_state.srSettings.enabled) return;
 
@@ -2164,7 +2197,7 @@ void RunFilters(IDXGISwapChain* swapChain) noexcept {
 		(uint32_t)sourceDesc.Width, (uint32_t)sourceDesc.Height, [&] {
 			return g_state.nrFilter.Prepare(
 				(uint32_t)sourceDesc.Width, (uint32_t)sourceDesc.Height,
-				sourceDesc.Format, presentSettings, NrMode::Present, g_state.nrAutoRoute);
+				sourceDesc.Format, presentSettings, NrMode::Present, g_state.nrAutoRoute || g_state.forcedRestorePending);
 		})) {
 		// SR 接在后面时把结果留在交接纹理里，否则直接落到 backbuffer。
 		// 代理生效时 NR 的尺寸是渲染分辨率，和 backbuffer 不一致，**只能**交给
@@ -2189,6 +2222,7 @@ void RunFilters(IDXGISwapChain* swapChain) noexcept {
 			const GpuImage nrDest =
 				srWillRun ? g_state.nrFilter.Handoff() : backBufferImage;
 			if (g_state.nrFilter.Execute(current, nrDest)) {
+                g_state.forcedRestorePending = false;
 				static uint64_t displayFrames = 0;
 				if (++displayFrames <= 3 || displayFrames % 600 == 0) {
 					D5_LOG_INFO(L"NR display route active: source=%p dest=%p actualBackBuffer=%p "
@@ -2326,6 +2360,7 @@ static bool UiSaveSettings() {
     };
     // 写回的是**配置原始意图**，不是运行时 canAtEvaluate（否则 F8 关 NR 会顺手把
     // dlss5AtEvaluate 写成 false，NR 再也回不到 evaluate 点）。
+    UiApplyKey(text, "nrForceCompatibility", asBool(g_state.nrForceCompatibility));
     UiApplyKey(text, "nrUseRealDepth", asBool(nr.useRealDepth));
     UiApplyKey(text, "nrUseRealMotion", asBool(nr.useRealMotion));
     UiApplyKey(text, "nrOpticalFlow", asBool(nr.opticalFlow));
@@ -2403,7 +2438,7 @@ static void UiMarkSave() {
 }
 
 // 产品版本号（面板标题行下方显示）
-static const char* kUiVersion = "0.6";
+static const char* kUiVersion = "0.7";
 
 // ---- 中英双语参数说明（复用自早期插件版，参考 NVIDIA DLSS5 文章措辞）----
 static const char* UiText(const char* zh, const char* en) { return g_state.uiLanguage == 2 ? en : zh; }
@@ -2633,7 +2668,17 @@ static void UiBuildPanel(bool escapePressed) {
         UiMarkSave();
     }
 
+    bool forceCompatibility = g_state.nrForceCompatibility;
+    if (DrawForcedNrToggle(forceCompatibility, g_state.uiLanguage == 2)) {
+        SetForcedCompatibility(forceCompatibility);
+        UiMarkSave();
+    }
+    if (forceCompatibility) ImGui::TextDisabled("%s", UiText(
+        "处理最终画面（包含游戏 UI）；原生深度和矢量在此模式下不使用。",
+        "Processes the final image, including game UI; native depth and motion are unused."));
+
     // input source combo: native vs zero
+    ImGui::BeginDisabled(forceCompatibility);
     int inputs = (nr.useRealDepth && nr.useRealMotion) ? 1 : 0;
     const char* kInputs[] = { "Synthetic guides (optical / zero)", "Native depth + motion" };
     if (ImGui::Combo("Inputs", &inputs, kInputs, 2)) {
@@ -2645,6 +2690,7 @@ static void UiBuildPanel(bool escapePressed) {
         UiMarkSave();
     }
     UiItemHelp(kHelpInputs);
+    ImGui::EndDisabled();
 
     bool optical = nr.opticalFlow;
     if (ImGui::Checkbox("Auto optical flow", &optical)) {
@@ -2668,9 +2714,9 @@ static void UiBuildPanel(bool escapePressed) {
 
     // status readouts
     const auto captured = NgxEavesdrop::Get().Captured();
-    const bool haveCap = captured.frameSeq != 0 && !(g_state.nrAtEvaluate && g_state.nrAutoRoute);
+    const bool haveCap = !g_state.nrForceCompatibility && captured.frameSeq != 0 && !(g_state.nrAtEvaluate && g_state.nrAutoRoute);
     const auto native = NgxEavesdrop::Get().LatestFrame();
-    const bool atEvaluate = ActiveNrFilter().Mode() == NrMode::AtEvaluate;
+    const bool atEvaluate = !g_state.nrForceCompatibility && ActiveNrFilter().Mode() == NrMode::AtEvaluate;
     const bool haveDepth = atEvaluate ? native.frameSeq && native.depth : haveCap && captured.depth;
     const bool haveMotion = atEvaluate ? native.frameSeq && native.motionVectors : haveCap && captured.motionVectors;
     const bool initTried = UsesD3D11Bridge(g_state.api) ? g_state.nr11Tried : g_state.nrTried.load();
@@ -2678,7 +2724,25 @@ static void UiBuildPanel(bool escapePressed) {
     const char* state = !initTried ? "waiting..." : initialized ? (ActiveNrFilter().IsReady() ? "ready" : "degraded") : "init failed";
     ImGui::Text("Filter: %s   @ %ux%u", state,
                 ActiveNrFilter().Width(), ActiveNrFilter().Height());
-    if (g_state.nrAutomaticHandoffBlocked && g_state.enabled.load() &&
+    if (g_state.nrForceCompatibility) {
+        ImGui::Text("%s", UiText("路径：强行兼容（最终画面）", "Route: Force compatibility (final image)"));
+        const char* zh = "等待可用的最终画面和呈现队列";
+        const char* en = "Waiting for a verified final image and presentation queue";
+        switch (g_state.forcedBlock) {
+        case ForcedNrBlock::Off: zh="NR 或总开关已关闭"; en="NR or all effects are off"; break;
+        case ForcedNrBlock::Busy: zh="等待旧路径 GPU 工作完成"; en="Waiting for previous GPU work to finish"; break;
+        case ForcedNrBlock::Paused: zh="画面重建中，暂时暂停"; en="Paused while presentation is being rebuilt"; break;
+        case ForcedNrBlock::NotReady: zh="等待 NR 初始化"; en="Waiting for NR initialization"; break;
+        case ForcedNrBlock::Failed: zh="NR 处理失败，请查看下方错误及日志"; en="NR processing failed; see the error below and the log"; break;
+        case ForcedNrBlock::Running: zh="最终画面 NR 生效中"; en="Final-image NR is active"; break;
+        default: break;
+        }
+        ImGui::TextWrapped("%s", UiText(zh,en));
+        ImGui::Text("%s: %llu", UiText("强行兼容已处理帧数", "Force compatibility frames"),
+            (unsigned long long)g_state.forcedFrames);
+        if (g_state.forcedBlock == ForcedNrBlock::Failed && ActiveNrFilter().LastError()[0])
+            ImGui::TextWrapped("%s", ActiveNrFilter().LastError());
+    } else if (g_state.nrAutomaticHandoffBlocked && g_state.enabled.load() &&
         g_state.nrSettings.enabled && g_state.nrAtEvaluate && g_state.nrAutoRoute) {
         ImGui::TextColored(ImVec4(1.0f,.75f,.25f,1.0f),"%s",UiText(
             "NR 暂停：等待游戏 SR 恢复", "NR paused: waiting for native SR"));
@@ -2686,7 +2750,7 @@ static void UiBuildPanel(bool escapePressed) {
             "FG 状态未知，当前呈现链的自动回退未验证；SR 恢复或切换到普通呈现链后自动继续。",
             "FG state is unknown; automatic fallback on this chain is unverified. NR resumes when SR returns or a normal presentation chain replaces it."));
     } else ImGui::Text("Route: %s", atEvaluate ? "SR -> NR" : "Present (display image)");
-    if (g_state.nrAutoRoute && g_state.nrAtEvaluate) ImGui::TextDisabled("Automatic route switching");
+    if (!g_state.nrForceCompatibility && g_state.nrAutoRoute && g_state.nrAtEvaluate) ImGui::TextDisabled("Automatic route switching");
     ImGui::Text("Render(DLSS) res: %ux%u", native.renderWidth, native.renderHeight);
     ImGui::Text("Depth:  %s", (nr.useRealDepth && haveDepth)
                    ? "native" : "zero");
@@ -3167,6 +3231,78 @@ bool UiMayDraw() noexcept {
 
 // Scene NR is upstream. Output effects and UI share the verified native
 // backbuffer writer evidence, which must only be consumed once per operation.
+// Caller holds g_nrStateMutex and supplies only a verified native output.
+static bool ForcedNrAllowed(bool native, bool queueReady) noexcept {
+    const bool active = g_state.enabled.load() &&
+        (g_state.nrSettings.enabled || g_state.nrSettings.grading.AnyBasicActive());
+    // Explicit final-output mode ignores the FG heuristic, but still requires
+    // verified output ownership and retirement of previous GPU work.
+    g_state.forcedBlock = ForcedNrAdmission(active,
+        EvaluateGpuGate::Get().IsIdle(),
+        GetTickCount64() < g_state.uiPauseUntil || g_state.uiPauseFrames > 0, native, queueReady);
+    if (g_state.forcedBlock != ForcedNrBlock::Running) {
+        if (g_state.forcedBlock != ForcedNrBlock::WaitingOutput) g_state.forcedReset = true;
+        return false;
+    }
+    return true;
+}
+static void FinishForcedNr(bool applied, uint64_t before) noexcept {
+    if (!g_state.nrSettings.enabled) { g_state.forcedBlock = ForcedNrBlock::Off; return; }
+    if (!applied || ActiveNrFilter().EvaluateCount() == before) {
+        g_state.forcedBlock = ForcedNrBlock::Failed;
+        g_state.forcedReset = true;
+        return;
+    }
+    g_state.forcedBlock = ForcedNrBlock::Running;
+    g_state.forcedLastApplied = GetTickCount64();
+    g_state.forcedReset = false;
+    if (++g_state.forcedFrames <= 3 || g_state.forcedFrames % 600 == 0)
+        D5_LOG_INFO(L"NR force compatibility applied: final image %ux%u frame=%llu, native guides disabled",
+            ActiveNrFilter().Width(), ActiveNrFilter().Height(), (unsigned long long)g_state.forcedFrames);
+}
+static bool RunForcedNr12(ID3D12Resource* image, ID3D12CommandQueue* queue) noexcept {
+    if (!image || !queue || !ForcedNrAllowed(true, true)) return false;
+    // Retire old Evaluate lists and our own submissions before mutating history.
+    if (!g_state.forcedOutput12.Retire(g_state.nrFilter)) {
+        g_state.forcedBlock = ForcedNrBlock::Busy; return false;
+    }
+    if (!g_state.nrTried) {
+        const auto injected = g_injectAtMs.load();
+        if (!injected || GetTickCount64() - injected < 5000) {
+            g_state.forcedBlock = ForcedNrBlock::NotReady; return false;
+        }
+        Microsoft::WRL::ComPtr<ID3D12Device> device;
+        if (FAILED(image->GetDevice(IID_PPV_ARGS(&device)))) return false;
+        g_state.nrTried = true;
+        g_state.nrInitialized = g_state.nrFilter.Initialize(device.Get(), queue, g_state.selfModule);
+    }
+    if (!g_state.nrInitialized) { g_state.forcedBlock = ForcedNrBlock::Failed; return false; }
+    const auto before = ActiveNrFilter().EvaluateCount();
+    UpdateSemanticMask();
+    const bool reset = g_state.forcedReset || !g_state.forcedLastApplied ||
+        GetTickCount64() - g_state.forcedLastApplied > 250;
+    const bool applied = g_state.forcedOutput12.Execute(g_state.nrFilter, image, queue, g_state.nrSettings, reset);
+    FinishForcedNr(applied, before);
+    return applied;
+}
+static bool RunForcedNr11(ID3D11Device* device, ID3D11Texture2D* image) noexcept {
+    if (!device || !image || !ForcedNrAllowed(true, true)) return false;
+    if (!g_state.nr11Tried) {
+        g_state.nr11Tried = true;
+        if (!g_state.nrFilter11.Initialize(device, g_state.selfModule)) {
+            g_state.forcedBlock = ForcedNrBlock::Failed; return false;
+        }
+    }
+    if (!g_state.nrFilter11.IsInitialized()) { g_state.forcedBlock = ForcedNrBlock::Failed; return false; }
+    UpdateSemanticMask();
+    const auto before = ActiveNrFilter().EvaluateCount();
+    const bool reset = g_state.forcedReset || !g_state.forcedLastApplied ||
+        GetTickCount64() - g_state.forcedLastApplied > 250;
+    const bool applied = g_state.nrFilter11.Execute(image, ForcedNrSettings(g_state.nrSettings, reset));
+    FinishForcedNr(applied, before);
+    return applied;
+}
+
 void UiFramePresent(IDXGISwapChain* swapChain, FinalPresentScope& scope) noexcept {
     std::lock_guard<std::recursive_mutex> nrLock(g_nrStateMutex);
     PresentWriterTracker::IgnoreScope ignoreOwnWriterEvidence;
@@ -3177,7 +3313,7 @@ void UiFramePresent(IDXGISwapChain* swapChain, FinalPresentScope& scope) noexcep
     // Keep the runtime updating with the master off so its techniques remain
     // visible/editable. Its effect execution obeys the master separately.
     const bool reShadeNeeded = g_state.reshade.Needed(g_state.selfModule);
-    const bool finalEnabled = (g_state.enabled.load() && g_state.nrSettings.grading.AnyFinalActive()) || reShadeNeeded;
+    const bool finalEnabled = g_state.nrForceCompatibility || (g_state.enabled.load() && g_state.nrSettings.grading.AnyFinalActive()) || reShadeNeeded;
     const auto now = GetTickCount64();
     g_state.finalPresentation.Begin(finalEnabled, now);
     if (!scope.Outer() && !finalEnabled) return; // Preserve the established NR/UI route when post-processing is off.
@@ -3192,6 +3328,8 @@ void UiFramePresent(IDXGISwapChain* swapChain, FinalPresentScope& scope) noexcep
         swapChain->QueryInterface(IID_PPV_ARGS(&identity));
         if (!scope.EnterNative(reinterpret_cast<uintptr_t>(identity.Get()))) return;
     }
+    if (g_state.nrForceCompatibility && scope.Outer())
+        ForcedNrAllowed(false, false); // Cleared by a usable native child below.
     const bool upstreamUi = scope.UpstreamUiDrawn();
     const bool fallbackUi = finalEnabled && !native && scope.Outer() && g_state.finalPresentation.ProxyUiFallback(now);
     const bool drawUi = !g_state.noUiPresent && (finalEnabled ? ((native && !upstreamUi) || fallbackUi) : scope.Outer());
@@ -3205,8 +3343,10 @@ void UiFramePresent(IDXGISwapChain* swapChain, FinalPresentScope& scope) noexcep
         if (finalAllowed) {
             Microsoft::WRL::ComPtr<ID3D11Texture2D> image;
             const UINT index = chain3 ? chain3->GetCurrentBackBufferIndex() : 0;
-            if (g_state.enabled.load() && SUCCEEDED(swapChain->GetBuffer(index, IID_PPV_ARGS(&image))))
-                applied = g_state.finalPost11.Execute(g_state.device11, image.Get(), g_state.selfModule, g_state.nrSettings.grading);
+            if (g_state.enabled.load() && SUCCEEDED(swapChain->GetBuffer(index, IID_PPV_ARGS(&image)))) {
+                if (g_state.nrForceCompatibility) applied = RunForcedNr11(g_state.device11, image.Get());
+                applied = g_state.finalPost11.Execute(g_state.device11, image.Get(), g_state.selfModule, g_state.nrSettings.grading) || applied;
+            }
             if (reShadeNeeded) applied = g_state.reshade.Render(swapChain, g_state.device11, nullptr,
                 g_state.selfModule, g_state.enabled.load()) || applied;
         }
@@ -3239,8 +3379,11 @@ void UiFramePresent(IDXGISwapChain* swapChain, FinalPresentScope& scope) noexcep
                 nativeQueueReady = native && bufferDevice.Get() == queueDevice.Get() &&
                     queue->GetDesc().Type == D3D12_COMMAND_LIST_TYPE_DIRECT;
                 if (finalAllowed && nativeQueueReady) {
-                    if (g_state.enabled.load()) applied = g_state.finalPost12.Execute(buffer.Get(), D3D12_RESOURCE_STATE_PRESENT,
-                        queue.Get(), g_state.selfModule, g_state.nrSettings.grading);
+                    if (g_state.enabled.load()) {
+                        if (g_state.nrForceCompatibility) applied = RunForcedNr12(buffer.Get(), queue.Get());
+                        applied = g_state.finalPost12.Execute(buffer.Get(), D3D12_RESOURCE_STATE_PRESENT,
+                            queue.Get(), g_state.selfModule, g_state.nrSettings.grading) || applied;
+                    }
                     if (reShadeNeeded) applied = g_state.reshade.Render(swapChain, queueDevice.Get(), queue.Get(),
                         g_state.selfModule, g_state.enabled.load()) || applied;
                 }
@@ -3259,10 +3402,11 @@ void UiFramePresent(IDXGISwapChain* swapChain, FinalPresentScope& scope) noexcep
     if (applied) {
         g_state.finalPostLastApplied = now;
         const auto frames = ActiveFinalFilter().GradingCount();
-        if (frames <= 3 || frames % 600 == 0) D5_LOG_INFO(
+        if (g_state.nrSettings.grading.AnyFinalActive() && (frames <= 3 || frames % 600 == 0)) D5_LOG_INFO(
             L"DXL final output: chain=%p frames=%llu native display buffer; LUT/filters after game pipeline",
             swapChain, (unsigned long long)frames);
     }
+    if (g_state.nrForceCompatibility) g_publisher.Publish();
     if (!drawUi || !ready) return;
     ReUi::SetUiOpen(&g_uiOpen);
     if (!g_uiInitialised) {
@@ -3315,7 +3459,7 @@ bool ProcessLegacyFrame(ID3D11Device* device, ID3D11Texture2D* image,
     D3D11_TEXTURE2D_DESC desc{}; image->GetDesc(&desc);
     g_state.width = desc.Width; g_state.height = desc.Height;
     bool processed = false;
-    if (g_state.enabled.load() && (g_state.nrSettings.enabled || g_state.nrSettings.grading.AnyBasicActive())) {
+    if (!g_state.nrForceCompatibility && g_state.enabled.load() && (g_state.nrSettings.enabled || g_state.nrSettings.grading.AnyBasicActive())) {
         if (!g_state.nr11Tried) {
             g_state.nr11Tried = true;
             if (!g_state.nrFilter11.Initialize(device, g_state.selfModule))
@@ -3326,6 +3470,7 @@ bool ProcessLegacyFrame(ID3D11Device* device, ID3D11Texture2D* image,
             processed = g_state.nrFilter11.Execute(image, SceneColorSettings(g_state.nrSettings));
         }
     }
+    if (g_state.nrForceCompatibility) processed = RunForcedNr11(device, image) || processed;
     if (g_state.enabled.load() && GetTickCount64() >= g_state.uiPauseUntil &&
             g_state.uiPauseFrames <= 0 && g_state.nrSettings.grading.AnyFinalActive()) {
         const bool finalApplied = g_state.finalPost11.Execute(device, image, g_state.selfModule, g_state.nrSettings.grading);
@@ -4290,15 +4435,24 @@ DWORD WINAPI CommandThread(LPVOID) {
                 unsigned index = 0; double value = 0;
                 if (!DecodeNrEdit(command.arg0, index, value)) break;
                 std::lock_guard<std::recursive_mutex> lock(g_nrStateMutex);
-                if (index >= 14 && !g_state.semanticAvailable) break;
-                unsigned field = 0;
+                const bool forceCompatibility = NrEditSpecs[index].key == "nrForceCompatibility";
+                if (forceCompatibility) {
+                    SetForcedCompatibility(value != 0);
+                    if (value != 0) {
+                        g_nrProcessingEnabled = g_state.nrSettings.enabled = true;
+                        g_state.enabled.store(true);
+                    }
+                } else {
+                    if (index >= 14 && !g_state.semanticAvailable) break;
+                    unsigned field = 0;
 #define APPLY_NR(key, member, type, low, high) if (index == field++) g_state.nrSettings.member = static_cast<type>(value);
-                DXL_NR_EDIT_FIELDS(APPLY_NR)
+                    DXL_NR_EDIT_FIELDS(APPLY_NR)
 #undef APPLY_NR
-                if (index >= field) g_state.nrSettings.semanticIntensity[index - field] = float(value);
-                if (index == 12) {
-                    if (UsesD3D11Bridge(g_state.api)) g_state.nrFilter11.InvalidateOpticalHistory();
-                    else g_state.nrFilter.InvalidateOpticalHistory();
+                    if (index >= field) g_state.nrSettings.semanticIntensity[index - field] = float(value);
+                    if (index == 12) {
+                        if (UsesD3D11Bridge(g_state.api)) g_state.nrFilter11.InvalidateOpticalHistory();
+                        else g_state.nrFilter.InvalidateOpticalHistory();
+                    }
                 }
                 UiMarkSave();
                 const bool persisted = UiSaveSettings();

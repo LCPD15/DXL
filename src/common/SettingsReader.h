@@ -148,7 +148,7 @@ public:
 			append(std::string(entry.key) + "Enabled");
 		}
         for (const auto& entry : BloomParameters) append(entry.key);
-		for (const auto key : {"colorLutEnabled", "colorLutIntensity", "colorLutFile", "colorFxState", "nrProcessingEnabled"}) append(key);
+		for (const auto key : {"colorLutEnabled", "colorLutIntensity", "colorLutFile", "colorFxState", "nrProcessingEnabled", "nrForceCompatibility"}) append(key);
 		return true;
 	}
 

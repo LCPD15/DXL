@@ -168,7 +168,7 @@ struct Status {
 	float eavesdropMvScaleY;
 	// 0/1：DLSSNR 这一帧真的用上了真矢量（而不是零矢量）
 	uint32_t nrUsingRealMotion;
-	uint32_t reservedV7;
+	uint32_t nrForceCompatibilityState; // former reservedV7: 0 unsupported, 1 off, 2 on
 
 	/* ---- DLSSNR 跑在游戏的 evaluate 点上（v8 新增）---- */
 	// 在游戏的 DLSS evaluate 之前成功处理了多少帧。> 0 = 那条路真的在跑，

@@ -1,3 +1,13 @@
+# 0.7
+
+## 中文
+
+- 新增强行兼容模式，直接使用游戏最终输出画面进行 NR 处理，不再尝试获取 DLSS 前的画面和原生运动矢量。支持在工具与游戏内切换，并按游戏保存。
+
+## English
+
+- Added Force compatibility mode, which applies NR directly to the game's final image without attempting to capture pre-DLSS frames or native motion vectors. Toggle it from the launcher or in-game panel, with settings saved per game.
+
 # 0.6
 
 ## 中文

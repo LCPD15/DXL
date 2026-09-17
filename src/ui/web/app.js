@@ -426,6 +426,7 @@ const SETTING_DEFAULTS = {
 	// 后来在鬼武者/街霸 6 上实测能稳定拿到矢量，所以默认打开；真出问题在配置页
 	// 关掉这一项即可。
 	eavesdrop: true,
+	nrForceCompatibility: false,
 	nrAutoRoute: true,
 	dlss5AtEvaluate: true,
 	// 总开关（游戏里 Del 那个）。**默认关**，由玩家进游戏自己按一下打开 ——
@@ -702,8 +703,11 @@ function onHostMessage(raw) {
             window.DxlUpdate?.receive(msg.payload);
             break;
 		case 'settings':
-			loadModel(msg.payload || {});
+			loadModel(msg.payload || {}, msg.forcedNrPreferences);
 			break;
+        case 'forcedNrPreferences':
+            applyForcedNrPreferences(msg.payload || {}); renderAll();
+            break;
         case 'nrParameterEdited':
             acknowledgeNrEdit(msg.payload || {});
             break;
@@ -844,7 +848,7 @@ function normalizeFgThreshold(value, fallback = 4) {
     return Number.isInteger(n) && n >= 2 && n <= 16 ? n : fallback;
 }
 
-function loadModel(payload) {
+function loadModel(payload, forcedNrPreferences = {}) {
 	saved = Object.assign(structuredClone(MODEL_DEFAULTS), payload);
     const migrateFgDefaults = !saved.fgDefaultsVersion;
 	if (!Array.isArray(saved.profiles) || !saved.profiles.length) {
@@ -877,6 +881,7 @@ function loadModel(payload) {
     saved.hotkeyRevision = Number.isSafeInteger(saved.hotkeyRevision) && saved.hotkeyRevision >= 0
         ? saved.hotkeyRevision : 0;
 	draft = structuredClone(saved);
+    applyForcedNrPreferences(forcedNrPreferences);
 	if (!draft.profiles.some(p => p.id === activeId)) activeId = draft.profiles[0].id;
 	// 语言要在第一次 renderAll 之前定好（renderAll 末尾会按它套翻译）。
 	// 放在 loadModel 里而不是页面加载时：draft.lang 从磁盘配置来。
@@ -1650,7 +1655,7 @@ document.addEventListener('input', e => {
 	const el = e.target;
 	const key = el.dataset && el.dataset.key;
 	if (!key) return;
-    if (NR_PARAMS.some(p => p.key === key)) { editLauncherNr(el); return; }
+    if (key === 'nrForceCompatibility' || NR_PARAMS.some(p => p.key === key)) { editLauncherNr(el); return; }
 	// Edits belong to the visible profile. Capture that identity before any
 	// status update or target switch can change the current selection.
 	if (el.type === 'radio' && !el.checked) return;
@@ -1732,7 +1737,7 @@ function scheduleLiveApply(key, profile = activeProfile()) {
 // 贵的那类只在松手时推一次。range 的 change 事件正好是松手才触发。
 document.addEventListener('change', e => {
 	const key = e.target && e.target.dataset && e.target.dataset.key;
-	if (key && NR_PARAMS.some(p => p.key === key)) { flushLauncherNr(); return; }
+	if (key && (key === 'nrForceCompatibility' || NR_PARAMS.some(p => p.key === key))) { flushLauncherNr(); return; }
 	if (key && LIVE_EXPENSIVE_KEYS.has(key)) {
 		liveApplyProfiles.add(activeProfile().id); liveApplyNow();
 	}
@@ -2461,6 +2466,7 @@ function renderAdvice(s) {
 // 触发一次落盘 + renderAll，浮层里拖一下滑条会写成几百次。
 // 玩家正在操作本侧输入框（聚焦/拖动中）时跳过：他的手比轮询快，别抢。
 const NR_PARAM_SYNC_KEYS = {
+    nrParamForceCompatibility: 'nrForceCompatibility',
 	nrParamIntensity: 'nrIntensity',
 	nrParamLocalTone: 'nrLocalTone',
 	nrParamLocalStructure: 'nrLocalStructure',
@@ -2841,7 +2847,7 @@ document.getElementById('openNgxDirBtn').addEventListener('click', () => {
 /* ---------------- 启动 ---------------- */
 
 // 版本号写在一处，别在 HTML 里硬编码（之前 HTML 里那个 v0.4.0 早就过期了）
-const APP_VERSION = 'v0.6';
+const APP_VERSION = 'v0.7';
 window.addEventListener('dxl-language-changed', () => { renderLog(); renderHotkeyHints(); renderAdvice(lastStatus); });
 document.getElementById('brandVersion').textContent = APP_VERSION;
 document.getElementById('projectLink').addEventListener('click', event => {
@@ -2874,6 +2880,7 @@ host.post('uiReady', null);
 // Session-only opt-in; never persisted as a game parameter.
 
 function renderNrEditor() {
+    document.getElementById('nrForceCompatibility').disabled = activeProfile().id === 'default';
     const toggle = document.getElementById('nrExternalEdit');
     toggle.disabled = activeProfile().id === 'default';
     if (toggle.disabled) toggle.checked = false;
@@ -2886,7 +2893,7 @@ function renderNrEditor() {
 }
 document.getElementById('nrExternalEdit').addEventListener('change', () => { renderNrEditor(); renderHotkeyHints(); });
 function editLauncherNr(el) {
-    if (!document.getElementById('nrExternalEdit').checked) return;
+    if (el.dataset.key !== 'nrForceCompatibility' && !document.getElementById('nrExternalEdit').checked) return;
     const profile = activeProfile();
     if (profile.id === 'default') return;
     let key = el.dataset.key;
@@ -2933,5 +2940,30 @@ function acknowledgeNrEdit(reply) {
         const profile = model.profiles.find(p => p.id === item.id);
         if (profile) profile.settings[reply.key] = item.value;
     }
+    if (reply.key === 'nrForceCompatibility') {
+        for (const model of [draft, saved]) {
+            const profile = model.profiles.find(p => p.id === item.id);
+            if (profile && item.value) Object.assign(profile.settings, {
+                masterEnabled:true, dlss5Enable:true, nrProcessingEnabled:true
+            });
+        }
+        const profile = saved.profiles.find(p => p.id === item.id);
+        if (profile) {
+            writeProfileFile(profile);
+            if (item.value) host.post('setMaster', null, {file:item.file, on:1});
+        }
+        renderAll();
+    }
     host.post('applySettings', saved, {noReload:1});
 }
+
+function applyForcedNrPreferences(preferences) {
+    const byFile = new Map(Object.entries(preferences).map(([file,value]) => [file.toLowerCase(),value]));
+    for (const model of [draft,saved]) for (const profile of model.profiles) {
+        const file = profileFileName(profile);
+        if (profile.id === 'default' || nrPending.has(file + ':nrForceCompatibility')) continue;
+        const value = byFile.get(file.toLowerCase());
+        if (typeof value === 'boolean') profile.settings.nrForceCompatibility = value;
+    }
+}
+window.addEventListener('focus', () => host.post('getForcedNrPreferences'));

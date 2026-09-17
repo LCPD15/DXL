@@ -1,12 +1,14 @@
 # DXL — DLSS eXtended Loader
 
-**English** | [简体中文](README_ZH.md) · **Version 0.6**
+**English** | [简体中文](README_ZH.md) · **Version 0.7**
 
 DXL (DLSS eXtended Loader) expands on my previous RE DLSS5 Load Mod. It aims to make DLSS NR as easy as possible to enable across games. In supported games, it can use native motion vectors and work with frame generation for higher-quality results. Compatibility varies by game.
 
 [Previous mod on GitHub](https://github.com/LCPD15/RE_DLSS5_Load_Mod) · [Previous mod on Nexus Mods](https://www.nexusmods.com/onimushawayofthesword/mods/32) · [DXL project](https://github.com/LCPD15/DXL)
 
-[Download the complete package](https://github.com/LCPD15/DXL/releases/latest) · [English online guide](https://github.com/LCPD15/DXL/blob/v0.6/docs/DXL-Guide-EN.md)
+[Download the complete package](https://github.com/LCPD15/DXL/releases/latest) · [English online guide](https://github.com/LCPD15/DXL/blob/v0.7/docs/DXL-Guide-EN.md)
+
+**Force compatibility (launcher profile / in-game DLSSNR tab)**: Try only if toggling NR in-game has no effect. This mode processes the final image, including game UI, and is saved per game. Disable it to restore normal NR routing.
 
 ## Features
 
@@ -81,7 +83,7 @@ The complete package includes the recognition model. This feature starts off. En
 
 Strength ranges from 0 to 1. Mask feather defaults to 8 to soften edges. Recognition may be poor, especially for anime scenes, occlusion or small objects. Turn it off if it misidentifies objects or produces unnatural edges.
 
-[Build and dependencies](https://github.com/LCPD15/DXL/blob/v0.6/DEPENDENCIES.md) · [Third-party components](THIRD_PARTY_NOTICES.md) · [Component licenses](LICENSE_STATUS.md)
+[Build and dependencies](https://github.com/LCPD15/DXL/blob/v0.7/DEPENDENCIES.md) · [Third-party components](THIRD_PARTY_NOTICES.md) · [Component licenses](LICENSE_STATUS.md)
 
 ## License
 

@@ -1,6 +1,6 @@
 # DXL — DLSS eXtended Loader
 
-**English** | [简体中文](README_ZH.md) · **Version 0.6**
+**English** | [简体中文](README_ZH.md) · **Version 0.7**
 
 DXL (DLSS eXtended Loader) expands on my previous RE DLSS5 Load Mod. It aims to make DLSS NR as easy as possible to enable across games. In supported games, it can use native motion vectors and work with frame generation for higher-quality results. Compatibility varies by game.
 
@@ -9,6 +9,8 @@ DXL (DLSS eXtended Loader) expands on my previous RE DLSS5 Load Mod. It aims to 
 [Download the complete package](https://github.com/LCPD15/DXL/releases/latest) · [English online guide](docs/DXL-Guide-EN.md)
 
 <img width="1672" height="941" alt="image" src="https://github.com/user-attachments/assets/bcc09cc3-f160-464c-81b0-4dbf9f1f0d3c" />
+
+**Force compatibility (launcher profile / in-game DLSSNR tab)**: Try only if toggling NR in-game has no effect. This mode processes the final image, including game UI, and is saved per game. Disable it to restore normal NR routing.
 
 ## Features
 

@@ -9,9 +9,31 @@
 #include "imgui_internal.h"
 #include "../src/core/ReUiBackend.cpp"
 #include "../src/core/ColorGradingUi.h"
+#include "../src/core/ForcedNrUi.h"
 using Microsoft::WRL::ComPtr;
 static void Check(bool b,const char* message){if(!b)throw std::runtime_error(message);}
 static void HR(HRESULT hr){if(FAILED(hr)){printf("HRESULT %08X\n",unsigned(hr));throw std::runtime_error("graphics call");}}
+static void TestForcedToggle() {
+    auto& io=ImGui::GetIO(); io.DisplaySize=ImVec2(1200,800); io.DeltaTime=1.0f/60;
+    for(bool english:{false,true}) {
+        bool enabled=false; ImVec2 hit{};
+        const auto frame=[&](ImVec2 point,bool pressed) {
+            io.MousePos=point; io.MouseDown[0]=pressed;
+            ImGui_ImplDX11_NewFrame();ImGui::NewFrame();
+            ImGui::SetNextWindowPos(ImVec2(10,10),ImGuiCond_Always);
+            ImGui::SetNextWindowSize(ImVec2(1000,300),ImGuiCond_Always);
+            ImGui::Begin("Forced NR interaction",nullptr,ImGuiWindowFlags_NoSavedSettings);
+            ImGui::Button("All effects: ON");ImGui::SameLine();bool nr=true;ImGui::Checkbox("DLSSNR",&nr);
+            auto p=ImGui::GetCursorScreenPos();hit=ImVec2(p.x+9,p.y+9);
+            DXL::DrawForcedNrToggle(enabled,english);
+            ImGui::End();ImGui::Render();
+        };
+        frame(ImVec2(-100,-100),false);frame(ImVec2(-100,-100),false);
+        frame(hit,true);frame(hit,false);Check(enabled,"production force-compatibility checkbox toggles on");
+        frame(hit,true);frame(hit,false);Check(!enabled,"production force-compatibility checkbox toggles off");
+    }
+    puts("PASS forced NR production checkbox: below original switches; Chinese/English on/off mouse interaction");
+}
 static void TestResetInteraction() {
     DXL::ColorGradingUi ui; DXL::ColorGradingSettings values;
     values.highlights={true,.73f}; values.monochrome={true,.64f};
@@ -102,7 +124,7 @@ int main() try {
                 ImGui::SetNextWindowSize(ImVec2(1140,1020),ImGuiCond_Always);
                 ImGui::SetNextWindowScroll(ImVec2(0,frame<4?0.0f:frame<8?900.0f:650.0f));
                 ImGui::Begin("DXL - DLSS eXtended Loader",nullptr,ImGuiWindowFlags_NoSavedSettings);
-                ImGui::TextColored(ImVec4(.46f,.72f,0,1),"DXL - DLSS eXtended Loader  v0.6");ImGui::SameLine();ImGui::TextDisabled("by LCPD15");
+                ImGui::TextColored(ImVec4(.46f,.72f,0,1),"DXL - DLSS eXtended Loader  v0.7");ImGui::SameLine();ImGui::TextDisabled("by LCPD15");
                 if(ImGui::BeginTabBar("Features")){
                     if(ImGui::BeginTabItem("DLSSNR")){ImGui::TextUnformatted("NR controls");ImGui::EndTabItem();}
                     if(ImGui::BeginTabItem(english?"Color Grading":"调色 / Color Grading",nullptr,ImGuiTabItemFlags_SetSelected)){
@@ -118,9 +140,23 @@ int main() try {
             if(frame==11) SavePng(device.Get(),context.Get(),image.Get(),english?L"grading-bloom-en.png":L"grading-bloom-zh.png");
         }
     }
+    for(bool english:{false,true}) {
+        for(int frame=0;frame<3;++frame) {
+            const float bg[]{.03f,.04f,.05f,1};context->ClearRenderTargetView(rtv.Get(),bg);
+            ReUi::FrameTexture11(image.Get(),[&]{
+                ImGui::SetNextWindowPos(ImVec2(20,20),ImGuiCond_Always);ImGui::SetNextWindowSize(ImVec2(1050,320),ImGuiCond_Always);
+                ImGui::Begin("DXL 0.7",nullptr,ImGuiWindowFlags_NoSavedSettings);
+                ImGui::TextUnformatted("DLSSNR");ImGui::Button(english?"All effects: ON":"总开关: ON");ImGui::SameLine();bool nr=true;ImGui::Checkbox("DLSSNR",&nr);
+                bool enabled=true;DXL::DrawForcedNrToggle(enabled,english);
+                ImGui::End();
+            });
+        }
+        SavePng(device.Get(),context.Get(),image.Get(),english?L"forced-nr-en.png":L"forced-nr-zh.png");
+    }
     Check(settings.exposure.value==.25f && settings.saturation.value==1.15f,"rendering must not mutate controls");
     Check(settings.highlights.value==0 && std::isfinite(settings.highlights.value),"non-finite typed input must normalize before persistence");
     Check(settings.sharpen.value==3 && settings.bloom.value==3,"production controls preserve sharpening and Bloom strength3");
+    TestForcedToggle();
     TestResetInteraction();
     ReUi::Shutdown();DestroyWindow(window);context->ClearState();context->Flush();CoUninitialize();
     puts("PASS production grading UI rendered in Chinese and English; controls preserve values");return 0;

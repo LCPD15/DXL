@@ -1,12 +1,14 @@
 # DXL — DLSS eXtended Loader
 
-[English](README_EN.md) | **简体中文** · **版本 0.6**
+[English](README_EN.md) | **简体中文** · **版本 0.7**
 
 DXL（DLSS eXtended Loader）基于我之前的 RE DLSS5 Load Mod 扩充，目的是尽可能方便地在各类游戏中启用 DLSS NR。对于支持的游戏，工具可获取原生运动矢量并与帧生成配合，提供更高质量的效果；具体兼容性取决于游戏。
 
 [前作 GitHub](https://github.com/LCPD15/RE_DLSS5_Load_Mod) · [前作 Nexus Mods](https://www.nexusmods.com/onimushawayofthesword/mods/32) · [DXL 项目](https://github.com/LCPD15/DXL)
 
-[下载完整包](https://github.com/LCPD15/DXL/releases/latest) · [中文版在线说明](https://github.com/LCPD15/DXL/blob/v0.6/docs/DXL-Guide-ZH.md)
+[下载完整包](https://github.com/LCPD15/DXL/releases/latest) · [中文版在线说明](https://github.com/LCPD15/DXL/blob/v0.7/docs/DXL-Guide-ZH.md)
+
+**强行兼容（工具配置页 / 游戏内 DLSSNR 页）**：仅当游戏内开关 NR 无效时尝试使用。此模式处理最终输出画面（包含游戏 UI），按游戏保存；关闭后恢复原来的 NR 路径。
 
 ## 特征
 
@@ -81,7 +83,7 @@ LUT、锐化、柔光、暗角、胶片颗粒、黑白与自定义效果改在�
 
 强度范围 0–1，边缘羽化默认 8，可缓和硬边界。识别效果可能不好，特别是二次元、遮挡和小物体；出现误识别或不自然边缘时，可关闭此功能。
 
-[构建与依赖](https://github.com/LCPD15/DXL/blob/v0.6/DEPENDENCIES.md) · [第三方组件](THIRD_PARTY_NOTICES.md) · [组件许可](LICENSE_STATUS.md)
+[构建与依赖](https://github.com/LCPD15/DXL/blob/v0.7/DEPENDENCIES.md) · [第三方组件](THIRD_PARTY_NOTICES.md) · [组件许可](LICENSE_STATUS.md)
 
 ## 开源许可
 
