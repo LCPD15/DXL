@@ -16,6 +16,20 @@ if (!(Test-Path -LiteralPath (Join-Path $dlss 'include/nvsdk_ngx.h'))) {
     git -C $dlss checkout --detach FETCH_HEAD
     if ($LASTEXITCODE) { throw 'DLSS checkout failed' }
 }
+$fgDir=Join-Path $DependencyRoot 'dlss-fg-310.9.16'
+$fgDll=Join-Path $fgDir 'nvngx_dlssg.dll'
+$fgHash='8D59D49B36410DD6B62FEF2503A5871D347415BD85D943FA0848563A95DD50C7'
+if (!(Test-Path -LiteralPath $fgDll) -or (Get-FileHash -LiteralPath $fgDll).Hash -ne $fgHash) {
+    New-Item -ItemType Directory -Path $fgDir -Force | Out-Null
+    $partial=Join-Path $fgDir ('nvngx_dlssg.'+$PID+'.part')
+    try {
+        Invoke-WebRequest 'https://raw.githubusercontent.com/NVIDIA/DLSS/9981c6350dc58c0ce21f024fd65e31e851c31689/lib/Windows_x86_64/rel/nvngx_dlssg.dll' -OutFile $partial
+        if ((Get-FileHash -LiteralPath $partial).Hash -ne $fgHash) { throw 'Unexpected NVIDIA DLSSG download hash' }
+        [IO.File]::Copy($partial,$fgDll,$true)
+    } finally {
+        if(Test-Path -LiteralPath $partial){Remove-Item -LiteralPath $partial}
+    }
+}
 $webview=Join-Path $DependencyRoot 'webview2'
 if (!(Test-Path -LiteralPath (Join-Path $webview 'include/WebView2.h'))) {
     $version='1.0.3485.44'

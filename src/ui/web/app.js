@@ -427,6 +427,8 @@ const SETTING_DEFAULTS = {
 	// 关掉这一项即可。
 	eavesdrop: true,
 	nrForceCompatibility: false,
+    fgEnabled: false,
+    fgMultiplier: 2,
 	nrAutoRoute: true,
 	dlss5AtEvaluate: true,
 	// 总开关（游戏里 Del 那个）。**默认关**，由玩家进游戏自己按一下打开 ——
@@ -835,6 +837,7 @@ function pruneDeadSettings(settings) {
 	for (const key of ['nrTrueLayers', 'nrOpticalFlowQuality']) {
 		if (key in clean) clean[key] = Math.round(Number(clean[key]));
 	}
+    if ('fgMultiplier' in clean && ![2,3,4].includes(clean.fgMultiplier)) delete clean.fgMultiplier;
     if ('fgBufferCountThreshold' in clean) {
         const n = Number(clean.fgBufferCountThreshold);
         if (Number.isInteger(n) && n >= 2 && n <= 16) clean.fgBufferCountThreshold = n;
@@ -1593,6 +1596,7 @@ function renderAll() {
 	const profile = activeProfile();
 	const settings = resolvedSettings(profile);
     renderNrEditor();
+    renderFgStatus();
 
 	for (const el of document.querySelectorAll('[data-key]')) {
 		const key = el.dataset.key;
@@ -1655,7 +1659,7 @@ document.addEventListener('input', e => {
 	const el = e.target;
 	const key = el.dataset && el.dataset.key;
 	if (!key) return;
-    if (key === 'nrForceCompatibility' || NR_PARAMS.some(p => p.key === key)) { editLauncherNr(el); return; }
+    if (key === 'nrForceCompatibility' || isFgEdit(key) || NR_PARAMS.some(p => p.key === key)) { editLauncherNr(el); return; }
 	// Edits belong to the visible profile. Capture that identity before any
 	// status update or target switch can change the current selection.
 	if (el.type === 'radio' && !el.checked) return;
@@ -1737,7 +1741,7 @@ function scheduleLiveApply(key, profile = activeProfile()) {
 // 贵的那类只在松手时推一次。range 的 change 事件正好是松手才触发。
 document.addEventListener('change', e => {
 	const key = e.target && e.target.dataset && e.target.dataset.key;
-	if (key && (key === 'nrForceCompatibility' || NR_PARAMS.some(p => p.key === key))) { flushLauncherNr(); return; }
+	if (key && (key === 'nrForceCompatibility' || isFgEdit(key) || NR_PARAMS.some(p => p.key === key))) { flushLauncherNr(); return; }
 	if (key && LIVE_EXPENSIVE_KEYS.has(key)) {
 		liveApplyProfiles.add(activeProfile().id); liveApplyNow();
 	}
@@ -2467,6 +2471,8 @@ function renderAdvice(s) {
 // 玩家正在操作本侧输入框（聚焦/拖动中）时跳过：他的手比轮询快，别抢。
 const NR_PARAM_SYNC_KEYS = {
     nrParamForceCompatibility: 'nrForceCompatibility',
+    fgEnabled: 'fgEnabled',
+    fgMultiplier: 'fgMultiplier',
 	nrParamIntensity: 'nrIntensity',
 	nrParamLocalTone: 'nrLocalTone',
 	nrParamLocalStructure: 'nrLocalStructure',
@@ -2584,6 +2590,7 @@ function setStatus(s) {
 	lastStatus = s;
 	if (s.proxySizeIgnored) handleProxyIgnored();
 	syncNrParamsFromCore(s);
+    renderFgStatus();
 	renderTargetSelect(s);
 	// 三语助手：t() 查不到回退中文（键是中文原文，见 i18n.js 的字典）。
 	const t = window.I18N ? I18N.t : (x => x);
@@ -2847,7 +2854,7 @@ document.getElementById('openNgxDirBtn').addEventListener('click', () => {
 /* ---------------- 启动 ---------------- */
 
 // 版本号写在一处，别在 HTML 里硬编码（之前 HTML 里那个 v0.4.0 早就过期了）
-const APP_VERSION = 'v0.7';
+const APP_VERSION = 'v1.0';
 window.addEventListener('dxl-language-changed', () => { renderLog(); renderHotkeyHints(); renderAdvice(lastStatus); });
 document.getElementById('brandVersion').textContent = APP_VERSION;
 document.getElementById('projectLink').addEventListener('click', event => {
@@ -2879,6 +2886,27 @@ host.post('uiReady', null);
 
 // Session-only opt-in; never persisted as a game parameter.
 
+function isFgEdit(key) { return key === 'fgEnabled' || key === 'fgMultiplier'; }
+
+function renderFgStatus() {
+    const profile = activeProfile();
+    const settings = resolvedSettings(profile);
+    const status = lastStatus.attached && matchProfileByTarget()?.id === profile.id ? lastStatus : null;
+    const limit = Number(status?.fgMaxMultiplier);
+    const select = document.getElementById('fgMultiplier');
+    select.disabled = profile.id === 'default';
+    for (const option of select.options) option.disabled = limit > 0 && Number(option.value) > limit;
+    const waiting = ['等待最终画面', '等待连续两帧', '正在补帧', '当前输出不受支持', '生成或呈现失败，请查看日志'];
+    const message = !settings.fgEnabled ? '已关闭' : !status ? '等待工具连接游戏' :
+        status.fgStatus === undefined ? '请使用更新后的核心重启游戏' :
+        !status.masterEnabled ? '等待总开关开启' : limit > 0 && settings.fgMultiplier > limit ?
+            '显卡不支持所选倍率' : (waiting[status.fgStatus] || waiting[0]);
+    document.getElementById('fgStatusText').textContent = window.I18N ? I18N.t(message) : message;
+    document.getElementById('fgEnabled').disabled = profile.id === 'default';
+    document.getElementById('fgPresentedLine').hidden = status?.fgPresented === undefined;
+    document.getElementById('fgPresentedCount').textContent = status?.fgPresented ?? '';
+}
+
 function renderNrEditor() {
     document.getElementById('nrForceCompatibility').disabled = activeProfile().id === 'default';
     const toggle = document.getElementById('nrExternalEdit');
@@ -2893,7 +2921,7 @@ function renderNrEditor() {
 }
 document.getElementById('nrExternalEdit').addEventListener('change', () => { renderNrEditor(); renderHotkeyHints(); });
 function editLauncherNr(el) {
-    if (el.dataset.key !== 'nrForceCompatibility' && !document.getElementById('nrExternalEdit').checked) return;
+    if (el.dataset.key !== 'nrForceCompatibility' && !isFgEdit(el.dataset.key) && !document.getElementById('nrExternalEdit').checked) return;
     const profile = activeProfile();
     if (profile.id === 'default') return;
     let key = el.dataset.key;
@@ -2933,13 +2961,18 @@ function acknowledgeNrEdit(reply) {
         lastNrParamVersion = -1;
         renderAll();
         const tr = window.I18N ? I18N.t : x => x;
-        document.getElementById('panelHotkeyHint').textContent = tr('NR 参数未保存，请使用更新后的核心重启游戏后重试。');
+        if (isFgEdit(reply.key)) {
+            if (activeProfile().id === item.id) document.getElementById('fgStatusText').textContent = tr('帧生成设置未保存，请查看日志');
+        } else {
+            document.getElementById('panelHotkeyHint').textContent = tr('NR 参数未保存，请使用更新后的核心重启游戏后重试。');
+        }
         return;
     }
     for (const model of [draft, saved]) {
         const profile = model.profiles.find(p => p.id === item.id);
         if (profile) profile.settings[reply.key] = item.value;
     }
+    if (isFgEdit(reply.key)) renderFgStatus();
     if (reply.key === 'nrForceCompatibility') {
         for (const model of [draft, saved]) {
             const profile = model.profiles.find(p => p.id === item.id);
@@ -2961,9 +2994,15 @@ function applyForcedNrPreferences(preferences) {
     const byFile = new Map(Object.entries(preferences).map(([file,value]) => [file.toLowerCase(),value]));
     for (const model of [draft,saved]) for (const profile of model.profiles) {
         const file = profileFileName(profile);
-        if (profile.id === 'default' || nrPending.has(file + ':nrForceCompatibility')) continue;
-        const value = byFile.get(file.toLowerCase());
-        if (typeof value === 'boolean') profile.settings.nrForceCompatibility = value;
+        if (profile.id === 'default') continue;
+        const entry = byFile.get(file.toLowerCase());
+        const fields = typeof entry === 'boolean' ? {nrForceCompatibility:entry} : entry;
+        if ([2,3,4].includes(fields?.fgMultiplier) && !nrPending.has(file + ':fgMultiplier')) {
+            profile.settings.fgMultiplier = fields.fgMultiplier;
+        }
+        for (const key of ['fgEnabled', 'nrForceCompatibility']) {
+            if (typeof fields?.[key] === 'boolean' && !nrPending.has(file + ':' + key)) profile.settings[key] = fields[key];
+        }
     }
 }
 window.addEventListener('focus', () => host.post('getForcedNrPreferences'));

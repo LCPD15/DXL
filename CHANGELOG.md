@@ -1,3 +1,8 @@
+# 1.0
+
+- 新增 DLSS 帧生成，支持游戏画面和通过 PotPlayer 播放的采集卡画面。
+- Added DLSS Frame Generation for games and capture card feeds played in PotPlayer.
+
 # 0.7
 
 ## 中文

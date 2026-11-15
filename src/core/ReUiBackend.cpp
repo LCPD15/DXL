@@ -1,5 +1,7 @@
 // ReUiBackend.cpp — see ReUiBackend.h
 #include "ReUiBackend.h"
+#include "PresentGeometry.h"
+#include <wrl/client.h>
 #include "HookTeardown.h"
 #include "PresentationFocus.h"
 #include "PresentWriterTracker.h"
@@ -847,7 +849,7 @@ void Shutdown() noexcept {
 
 bool WaitIdle() noexcept { return WaitForGpu(); }
 
-static ImDrawData* BuildDrawData(uint32_t w, uint32_t h,
+static ImDrawData* BuildDrawData(IDXGISwapChain* chain, uint32_t w, uint32_t h,
                                    const std::function<void()>& buildUi) {
     // input (polled; no win32 backend needed)
     auto* uiOpen = g.uiOpen.load(std::memory_order_acquire);
@@ -864,7 +866,12 @@ static ImDrawData* BuildDrawData(uint32_t w, uint32_t h,
 
     ImGui::SetCurrentContext(g.imgui);
     ImGuiIO& io = ImGui::GetIO();
-    io.DisplaySize = ImVec2((float)w, (float)h);
+    DXL::PresentGeometry geometry{};
+    Microsoft::WRL::ComPtr<IDXGISwapChain2> chain2;
+    const HWND inputWindow = g.hwnd.load();
+    const bool mapped = chain && SUCCEEDED(chain->QueryInterface(IID_PPV_ARGS(&chain2))) &&
+        DXL::ReadPresentGeometry(chain2.Get(), inputWindow, w, h, geometry);
+    io.DisplaySize = mapped ? ImVec2(float(geometry.width), float(geometry.height)) : ImVec2(float(w), float(h));
     io.DisplayFramebufferScale = ImVec2(1, 1);
     // draw our own cursor only when the OS cursor is not showing (gameplay);
     // in menus the game draws one at the same spot and double cursors look bad
@@ -874,12 +881,14 @@ static ImDrawData* BuildDrawData(uint32_t w, uint32_t h,
         if (GetCursorInfo(&ci)) nativeShown = (ci.flags & CURSOR_SHOWING) != 0;
     }
     if (open && fg && g.hwnd) {
+        const auto oldDpi = mapped ? SetThreadDpiAwarenessContext(GetWindowDpiAwarenessContext(inputWindow)) : nullptr;
         POINT pt{};
         if (o_GetCursorPos) o_GetCursorPos(&pt); // always read the real pointer
         else GetCursorPos(&pt);
         ScreenToClient(g.hwnd, &pt);
         RECT client{};
         GetClientRect(g.hwnd, &client);
+        if (oldDpi) SetThreadDpiAwarenessContext(oldDpi);
         const POINT cursor = cursorFallback.Update(pt, client.right, client.bottom,
                                                    ConsumeRawMouse(), GetTickCount64());
         if (g.virtualCursor.exchange(cursorFallback.active) != cursorFallback.active) {
@@ -888,7 +897,10 @@ static ImDrawData* BuildDrawData(uint32_t w, uint32_t h,
                         cursorFallback.active ? L"raw fallback active" : L"absolute input restored");
         }
         // A window's client extent can differ from its render resolution.
-        io.MousePos = ImVec2(float(cursor.x) * float(w) / float((std::max)(client.right, 1L)),
+        if (mapped) {
+            io.MousePos = ImVec2((float(cursor.x) - geometry.offsetX) / geometry.sx,
+                                 (float(cursor.y) - geometry.offsetY) / geometry.sy);
+        } else io.MousePos = ImVec2(float(cursor.x) * float(w) / float((std::max)(client.right, 1L)),
                              float(cursor.y) * float(h) / float((std::max)(client.bottom, 1L)));
     } else {
         ResetCursorSession();
@@ -910,7 +922,15 @@ static ImDrawData* BuildDrawData(uint32_t w, uint32_t h,
     ImGui::NewFrame();
     if (buildUi) buildUi();
     ImGui::Render();
-    return ImGui::GetDrawData();
+    auto* draw = ImGui::GetDrawData();
+    if (mapped && (geometry.x || geometry.y)) {
+        // Shift the projection and scissors into a right-aligned source subrectangle.
+        draw->DisplayPos.x -= float(geometry.x);
+        draw->DisplayPos.y -= float(geometry.y);
+        draw->DisplaySize.x += float(geometry.x);
+        draw->DisplaySize.y += float(geometry.y);
+    }
+    return draw;
 
 }
 
@@ -946,7 +966,7 @@ void FramePresent(IDXGISwapChain* swapChain,
     const uint32_t w = (uint32_t)desc.Width;
     const uint32_t h = desc.Height;
 
-    ImDrawData* draw = BuildDrawData(w, h, buildUi);
+    ImDrawData* draw = BuildDrawData(swapChain, w, h, buildUi);
 
     // GPU work
     if (!WaitForGpu()) { backbuffer->Release(); return; }
@@ -1011,12 +1031,12 @@ void FramePresent11(IDXGISwapChain* swapChain,
     }
     ID3D11Texture2D* backbuffer = nullptr;
     if (FAILED(swapChain->GetBuffer(index, IID_PPV_ARGS(&backbuffer)))) return;
-    FrameTexture11(backbuffer, buildUi);
+    FrameTexture11(backbuffer, buildUi, swapChain);
     backbuffer->Release();
 }
 
 void FrameTexture11(ID3D11Texture2D* backbuffer,
-                    const std::function<void()>& buildUi) {
+                    const std::function<void()>& buildUi, IDXGISwapChain* swapChain) {
     if (!g.ok || !g.device11 || !g.context11 || !g.state11 || !backbuffer ||
         DXL::IsTeardownRequested()) return;
     D3D11_TEXTURE2D_DESC desc{};
@@ -1025,7 +1045,7 @@ void FrameTexture11(ID3D11Texture2D* backbuffer,
     if (FAILED(g.device11->CreateRenderTargetView(backbuffer, nullptr, &rtv))) {
         return;
     }
-    ImDrawData* draw = BuildDrawData(desc.Width, desc.Height, buildUi);
+    ImDrawData* draw = BuildDrawData(swapChain, desc.Width, desc.Height, buildUi);
     // ImGui's DX11 backend saves common draw state, but it also clears HS/DS/CS
     // without restoring them and does not own OM targets/UAVs or predication.
     // Swap the full runtime context state rather than guess the game's bindings.

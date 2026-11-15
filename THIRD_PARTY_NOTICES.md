@@ -11,6 +11,7 @@ Bloom's multiscale glow design references luluco250's MIT-licensed MagicBloom sh
 | Component / 组件 | Purpose / 用途 | Project / 项目 |
 |---|---|---|
 | NVIDIA DLSS / NGX | Neural rendering and DLSS integration / 神经渲染与 DLSS 接入 | https://github.com/NVIDIA/DLSS |
+| NVIDIA DLSS Frame Generation 310.9.16 | Final-image frame interpolation (2×, 3×, 4×) / 最终画面插帧（2×、3×、4×） | https://github.com/NVIDIA/DLSS/releases/tag/v310.9.16 |
 | NVIDIA TensorRT Lean | Semantic model inference / 语义模型推理 | https://developer.nvidia.com/tensorrt |
 | Ultralytics YOLO11n-seg | Semantic Mask / 语义 Mask | https://github.com/ultralytics/ultralytics |
 | Microsoft WebView2 | Launcher interface / 启动器界面 | https://developer.microsoft.com/microsoft-edge/webview2/ |

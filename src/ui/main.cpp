@@ -641,6 +641,15 @@ void SendStatusToUi() {
 		// 参数版本号：只在游戏内浮层改参数时变。UI 靠它忽略自己推送的回声
 		// （见 IpcProtocol 里 nrParamVersion 的说明）。
 		AddNumber(json, "nrParamVersion", status.nrParamVersion);
+        if (status.version >= 15) {
+            AddNumber(json, "fgMultiplier", status.fgMultiplier);
+            AddNumber(json, "fgMaxMultiplier", status.fgMaxMultiplier);
+        }
+        if (status.version >= 14) {
+            AddBool(json, "fgEnabled", status.fgEnabled != 0);
+            AddNumber(json, "fgStatus", status.fgStatus);
+            AddNumber(json, "fgPresented", status.fgPresented);
+        }
         if (status.nrForceCompatibilityState == 1 || status.nrForceCompatibilityState == 2)
             AddBool(json, "nrParamForceCompatibility", status.nrForceCompatibilityState == 2);
 		AddNumber(json, "depthCandidates", status.depthCandidates);
@@ -1490,7 +1499,8 @@ void HandleUiMessage(std::string_view json) {
             ",\"key\":" + JsonQuoted(Utf8ToWide(key)) + ",\"value\":" + std::to_string(value) +
             ",\"requestId\":" + std::to_string(requestId) +
             ",\"ok\":" + (ok ? "true" : "false") + "}}");
-        if (!ok) SendLog(g_uiLang.load() == 2 ? L"NR parameter was not saved. Restart the game with the updated core and try again."
+        if (!ok && (key == "fgEnabled" || key == "fgMultiplier")) SendLog(g_uiLang.load() == 2 ? L"Frame generation settings could not be saved." : L"帧生成设置未保存。");
+        else if (!ok) SendLog(g_uiLang.load() == 2 ? L"NR parameter was not saved. Restart the game with the updated core and try again."
             : L"NR 参数未保存，请使用更新后的核心重启游戏后重试。");
         if (live) SendStatusToUi();
 } else if (type == "openProjectPage") {

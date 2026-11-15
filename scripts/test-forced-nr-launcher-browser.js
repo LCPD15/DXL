@@ -29,6 +29,44 @@ const output=process.argv[2] || path.join(workspace,'diagnostics/forced-nr-launc
    const force=page.locator('#nrForceCompatibility');
    assert.equal(await force.isChecked(),true,'saved in-game preference overrides stale launcher model');
    assert.equal(await page.locator('#nrExternalEdit').isChecked(),false);
+   const fg=page.locator('#fgEnabled');
+   assert.equal(await fg.isChecked(),false,'FG is opt-in for old profiles');
+   const launchBounds=await page.locator('#launchSettingsCard').boundingBox();
+   const fgBounds=await page.locator('#fgSettingsCard').boundingBox();
+   assert.equal(fgBounds.x,launchBounds.x,'FG stays in the launch column');
+   assert.ok(fgBounds.y>=launchBounds.y+launchBounds.height,'FG is below launch settings');
+   const multiplier=page.locator('#fgMultiplier');
+   assert.equal(await multiplier.inputValue(),'2','old profile defaults to 2x');
+   await multiplier.selectOption('4');
+   await page.evaluate(()=>{
+    flushLauncherNr();
+    const req=testMessages.filter(m=>m.type==='editNrParameter').at(-1);
+    if(req.key!=='fgMultiplier'||req.value!==4)throw Error('bad FG multiplier edit');
+    onHostMessage({type:'nrParameterEdited',payload:{...req,ok:true}});
+    if(saved.profiles[0].settings.fgMultiplier!==4||saved.profiles[0].settings.fgEnabled)throw Error('multiplier must be saved independently');
+    onHostMessage({type:'forcedNrPreferences',payload:{'a.exe.json':{fgMultiplier:3}}});
+   });
+   assert.equal(await multiplier.inputValue(),'3','recover in-game multiplier');
+   await fg.check({force:true});
+   await page.evaluate(()=>{
+    flushLauncherNr();
+    const request=testMessages.filter(m=>m.type==='editNrParameter').at(-1);
+    if(request.key!=='fgEnabled'||request.value!==1||request.file!=='a.exe.json')throw Error('FG routed to wrong profile');
+    onHostMessage({type:'nrParameterEdited',payload:{...request,ok:true}});
+    if(saved.profiles[0].settings.masterEnabled)throw Error('FG must not enable the master');
+    onHostMessage({type:'forcedNrPreferences',payload:{'a.exe.json':{fgEnabled:false}}});
+   });
+   assert.equal(await fg.isChecked(),false,'per-game FG recovery works when stopped');
+   await page.evaluate(()=>{
+    lastStatus={target:'a.exe',attached:true,currentPid:11,fgEnabled:true,masterEnabled:true,fgStatus:2,fgPresented:9,fgMultiplier:2,fgMaxMultiplier:2};
+    syncNrParamsFromCore({...lastStatus,nrParamVersion:1});
+   });
+   assert.equal(await fg.isChecked(),true,'in-game FG opt-in reaches launcher');
+   assert.equal(await page.locator('#fgPresentedCount').textContent(),'9');
+   assert.equal(await multiplier.inputValue(),'2','sync live multiplier');
+   assert.equal(await multiplier.locator('option[value="3"]').isDisabled(),true,'disable unsupported multipliers');
+   if(lang==='en')assert.doesNotMatch(await page.locator('#fgSettingsCard').innerText(),/[\u3400-\u9fff]/);
+   await page.evaluate(()=>{lastStatus={};renderAll();});
    await force.uncheck({force:true});
    await page.evaluate(()=>{
     flushLauncherNr();

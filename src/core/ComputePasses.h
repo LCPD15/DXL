@@ -233,6 +233,14 @@ private:
 		float postScale = 1.0f, float stretchLo = 0.0f,
 		float stretchHi = 0.0f, float colourStrength = 1.0f, float selfLayers = 1.0f) noexcept;
 
+    // Each renderer owns its own passes. FG records on a different thread from NR.
+    struct LoggedParams {
+        float scale = -1.f, gamma = -1.f, post = -1.f;
+        uint32_t flags = ~0u;
+        ULONGLONG lastLog = 0;
+    };
+    LoggedParams _logged[static_cast<unsigned>(Pass::RatioApply) + 1]{};
+
 	ID3D12Device* _device = nullptr;
 	ID3D12RootSignature* _rootSignature = nullptr;
 	ID3D12PipelineState* _encodePso = nullptr;

@@ -3,6 +3,21 @@
 	'use strict';
 
 	const EN = {
+        "DLSS 帧生成": "DLSS Frame Generation",
+        "启用帧生成": "Enable frame generation",
+        "输出倍率": "Output multiplier",
+        "显卡不支持所选倍率": "Selected multiplier unsupported on this GPU",
+        "根据最终画面补帧。按游戏保存，随总开关启停。": "Generate frames from the final image. Saved per game and controlled by the all-effects switch.",
+        "已提交生成帧": "Generated frames presented",
+        "等待工具连接游戏": "Waiting for DXL to connect to the game",
+        "等待最终画面": "Waiting for the final image",
+        "等待连续两帧": "Waiting for a frame pair",
+        "正在补帧": "Generating frames",
+        "当前输出不受支持": "Unsupported output",
+        "生成或呈现失败，请查看日志": "Generation or presentation failed. See the log.",
+        "请使用更新后的核心重启游戏": "Restart the game with the updated core",
+        "等待总开关开启": "Waiting for all effects to be enabled",
+        "帧生成设置未保存，请查看日志": "Frame generation settings could not be saved. See the log.",
         "强行兼容模式": "Force compatibility mode",
         "仅当游戏内开关 NR 无效时尝试使用。直接处理最终画面；与游戏内开关同步，按游戏保存。开启时同时启用 NR 与总开关；游戏未运行时也可关闭。": "Try only if toggling NR in-game has no effect. Processes the final image; synced with the in-game switch and saved per game. Enabling it also turns on NR and all effects. You can turn it off while the game is closed.",
         "工具内调参": "Edit in launcher",

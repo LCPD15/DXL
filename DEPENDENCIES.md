@@ -18,7 +18,7 @@ source, under DXL_WORKSPACE/dependencies/. Never commit them.
 | NR runtime | https://github.com/SAOG0721/Magpie/releases | dependencies/runtime/nvngx_dlssnr.dll | Community source reference only, NOT an NVIDIA authorization; no authorized download for the exact modified file has been verified |
 | ReShade 6.8.0 | https://github.com/crosire/reshade/tree/18deaa52de0c425a78b329e9cb3c497281cd00ec | headers: third_party/reshade/include; runtime: dependencies/reshade/runtime/DXL-ReShade.dll | BSD-3-Clause and included dependency notices; private no-hook host build |
 
-## Build DXL 0.7
+## Build DXL 1.0
 
 Install Visual Studio 2022 Build Tools with the C++ x64 tools and a Windows SDK.
 Use PowerShell from the source root. Keep DXL_WORKSPACE outside the checkout:
@@ -29,7 +29,7 @@ $env:DXL_WORKSPACE = 'D:\DXL-Workspace'
 ./scripts/build_reshade_runtime.ps1
 # Prepare the runtime and model inputs described below, then:
 ./scripts/build_dxl.ps1 -Runtime Lean -Test
-./scripts/release_dxl.ps1 -SourceDir "$env:DXL_WORKSPACE/build/dxl-0.7" -OutDir 'D:\DXL-release/DXL-v0.7'
+./scripts/release_dxl.ps1 -SourceDir "$env:DXL_WORKSPACE/build/dxl-1.0" -OutDir 'D:\DXL-release/DXL-v1.0'
 ```
 
 The source includes FG compatibility and runtime route switching. No private
@@ -42,7 +42,7 @@ scripts/fetch-deps.ps1 fetches the pinned DLSS and WebView2 SDKs into the extern
 workspace. It does not download or patch an NR runtime.
 
 Place authorized runtime inputs in dependencies/runtime/:
-nvngx_dlss.dll, nvngx_dlssg.dll, nvngx_dlssnr.dll.
+nvngx_dlss.dll and nvngx_dlssnr.dll. The build separately stages the signed x64 Frame Generation runtime 310.9.16 from [NVIDIA DLSS SDK v310.9.16](https://github.com/NVIDIA/DLSS/releases/tag/v310.9.16). Run scripts/fetch-deps.ps1 to download the SHA-256-pinned DLL.
 Extract nvinfer_lean_11.dll and its original LICENSE.txt from the official Lean
 wheel to dependencies/runtime/tensorrt-lean/.
 

@@ -339,18 +339,12 @@ bool ComputePasses::Record(
 	// 在画面上分不开 —— 实测白点 8.0 和 2.0 出来的图几乎一样暗，差 4 倍的参数
 	// 看不出区别，那就该怀疑它根本没到 shader，而不是继续调数值。
 	{
-		// 只在**值变了**的时候打。按次数限流会漏掉"用户改了设置之后"的那一次，
-		// 而那恰恰是最想看的一次。
-		static float lastScale = -1.0f;
-		static float lastGamma = -1.0f;
-		static float lastPost = -1.0f;
-		static uint32_t lastFlags = 0xFFFFFFFFu;
-		if (constants.scale != lastScale || constants.gamma != lastGamma ||
-			constants.postScale != lastPost || constants.flags != lastFlags) {
-			lastScale = constants.scale;
-			lastGamma = constants.gamma;
-			lastPost = constants.postScale;
-			lastFlags = constants.flags;
+        auto& last = _logged[static_cast<unsigned>(pass)];
+        const bool changed = constants.scale != last.scale || constants.gamma != last.gamma ||
+            constants.postScale != last.post || constants.flags != last.flags;
+        const auto now = GetTickCount64();
+        if (changed && (!last.lastLog || now - last.lastLog >= 5000)) {
+            last = { constants.scale, constants.gamma, constants.postScale, constants.flags, now };
 			D5_LOG_INFO(L"计算 pass[%u]：白点=%.3f gamma=%.3f 写出倍数=%.3f "
 				L"拉伸[%.3f..%.3f] %ux%u flags=0x%X",
 				(unsigned)pass, constants.scale, constants.gamma,

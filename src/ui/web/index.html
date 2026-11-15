@@ -292,7 +292,8 @@
 						<p class="page-sub" id="settingsFor">当前配置：默认</p>
 					</div>
 
-					<div class="card compact-params" id="launchSettingsCard">
+					<div class="launch-and-fg">
+                    <div class="card compact-params" id="launchSettingsCard">
 						<h2>启动与注入</h2>
 						<div class="row">
 							<label class="row-label" for="profileName">配置名称</label>
@@ -340,7 +341,23 @@
                         </details>
 					</div>
 
-					<div class="card compact-params" id="nrSettingsCard">
+					<section class="card" id="fgSettingsCard">
+                        <h2>DLSS 帧生成</h2>
+                        <div class="row">
+                            <label class="row-label" for="fgEnabled">启用帧生成</label>
+                            <label class="switch"><input type="checkbox" id="fgEnabled" data-key="fgEnabled" aria-describedby="fgHint"><span class="slider-track"></span></label>
+                        </div>
+                        <div class="row">
+                            <label class="row-label" for="fgMultiplier">输出倍率</label>
+                            <div class="row-field"><select id="fgMultiplier" data-key="fgMultiplier"><option value="2">2×</option><option value="3">3×</option><option value="4">4×</option></select></div>
+                        </div>
+                        <p class="hint" id="fgHint">根据最终画面补帧。按游戏保存，随总开关启停。</p>
+                        <p class="hint" role="status" id="fgStatusText"></p>
+                        <p class="hint" id="fgPresentedLine" hidden><span>已提交生成帧</span> <output id="fgPresentedCount"></output></p>
+                    </section>
+                    </div>
+
+                    <div class="card compact-params" id="nrSettingsCard">
 						<h2>DLSS5 Neural Rendering</h2>
 						<p class="card-note">
 							神经渲染滤镜。开启原生 DLSS 时，在超分 Evaluate 之后处理 NR，供后续帧生成使用；没有原生 DLSS 时自动回退 Present。优先使用原生运动矢量，缺少时可自动计算光流。

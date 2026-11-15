@@ -37,6 +37,8 @@ inline constexpr NrEditSpec NrEditSpecs[] = {
  REGION(6), REGION(7), REGION(8), REGION(9), REGION(10), REGION(11),
 #undef REGION
  {"nrForceCompatibility", 0, 1, true, true},
+ {"fgEnabled", 0, 1, true, true},
+ {"fgMultiplier", 2, 4, true, false},
 };
 inline bool EncodeNrEdit(std::string_view key, double value, uint32_t& packed) {
  if (!std::isfinite(value)) return false;

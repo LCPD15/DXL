@@ -1,4 +1,4 @@
-param([string]$OutDir = '', [switch]$LibraryOnly)
+﻿param([string]$OutDir = '', [switch]$LibraryOnly)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'paths.ps1')
 $OutDir = Resolve-DxlOutput $OutDir
@@ -29,8 +29,8 @@ $flags = @('/nologo','/O2','/Oi','/MT','/EHsc','/GR','/std:c++20','/utf-8','/W3'
     '/Isrc/core','/Ithird_party/imgui','/Ithird_party/imgui/backends','/Ithird_party/minhook/include',
     ('/I'+(Join-Path $DependencyRoot 'dlss/include')),'/Ithird_party/tensorrt/include','/Ithird_party/cuda-stub',
     '/Ithird_party/fidelityfx/sdk/include','/Ithird_party/fidelityfx/sdk/src/backends/shared',"/Fo$OutDir/obj/core/")
-$core = @('core','NgxSession','DlssSrUpscaler','SwapChainScaler','DlssNrFilter','DlssNrFilter11','SegMaskFilter',
-    'ComputePasses','ColorGrading','ReShadeBridge','CommandListTracker','DepthTracker','FreezeWatchdog','NgxCallerProbe','NgxEavesdrop',
+$core = @('core','NgxSession','DlssSrUpscaler','DlssFgBackend','SwapChainScaler','DlssNrFilter','DlssNrFilter11','SegMaskFilter',
+    'FgPresentation','ComputePasses','ColorGrading','ReShadeBridge','CommandListTracker','DepthTracker','FreezeWatchdog','NgxCallerProbe','NgxEavesdrop',
     'ChainInject','LegacyGraphics','ReUiBackend','OpticalFlow','OpticalFlowShaders') | ForEach-Object { "src/core/$_.cpp" }
 $deps = @('third_party/imgui/imgui.cpp','third_party/imgui/imgui_draw.cpp','third_party/imgui/imgui_tables.cpp',
     'third_party/imgui/imgui_widgets.cpp','third_party/imgui/backends/imgui_impl_dx12.cpp','third_party/imgui/backends/imgui_impl_dx11.cpp',

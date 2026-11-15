@@ -1,14 +1,16 @@
 # DXL — DLSS eXtended Loader
 
-**English** | [简体中文](README_ZH.md) · **Version 0.7**
+**English** | [简体中文](README_ZH.md) · **Version 1.0**
 
 DXL (DLSS eXtended Loader) expands on my previous RE DLSS5 Load Mod. It aims to make DLSS NR as easy as possible to enable across games. In supported games, it can use native motion vectors and work with frame generation for higher-quality results. Compatibility varies by game.
 
 [Previous mod on GitHub](https://github.com/LCPD15/RE_DLSS5_Load_Mod) · [Previous mod on Nexus Mods](https://www.nexusmods.com/onimushawayofthesword/mods/32) · [DXL project](https://github.com/LCPD15/DXL)
 
-[Download the complete package](https://github.com/LCPD15/DXL/releases/latest) · [English online guide](https://github.com/LCPD15/DXL/blob/v0.7/docs/DXL-Guide-EN.md)
+[Download the complete package](https://github.com/LCPD15/DXL/releases/latest) · [English user guide](DXL-Guide-EN.docx)
 
 **Force compatibility (launcher profile / in-game DLSSNR tab)**: Try only if toggling NR in-game has no effect. This mode processes the final image, including game UI, and is saved per game. Disable it to restore normal NR routing.
+
+**DLSS Frame Generation (experimental).** Enable DLSS FG in the game profile or the in-game FG tab (End), then turn on the master switch. Choose 2×, 3× or 4× as supported by your GPU. DXL saves the setting per game. In windowed or borderless D3D11/D3D12 mode, FG interpolates the final image and matches the game window’s scaling. NR processes only input frames.
 
 ## Features
 

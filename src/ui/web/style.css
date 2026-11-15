@@ -1146,6 +1146,7 @@ code {
 .update-dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 45vh; overflow: auto; font: inherit; line-height: 1.6; padding: 14px; border: 1px solid #8885; border-radius: 8px; }
 
 /* Compact only parameter rows, never hints or explanatory small print. */
+.launch-and-fg > .card + .card { margin-top: 16px; }
 .compact-params .row { padding: 8.8px 0; gap: 12.8px; }
 .compact-params .row-label { font-size: 10.4px; }
 .compact-params .row-field input[type="text"], .compact-params .row-field select { font-size: 10.4px; }

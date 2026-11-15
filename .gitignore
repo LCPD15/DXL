@@ -67,4 +67,5 @@ config-migration-*.txt
 !src/ui/web/app-icon.png
 !src/ui/web/app-icon@2x.png
 !docs/images/dxl-interface.png
+!docs/images/potplayer-dlss-fg.png
 !lut/Neutral-16.png

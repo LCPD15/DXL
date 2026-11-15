@@ -1,4 +1,4 @@
-# DXL 0.7 source code / 源代码
+# DXL 1.0 source code / 源代码
 
 DXL is distributed under the GNU Affero General Public License, version 3
 (AGPL-3.0-only). Copyright (C) 2026 LCPD15.
@@ -6,9 +6,9 @@ DXL is distributed under the GNU Affero General Public License, version 3
 DXL 按 GNU Affero General Public License 第 3 版（AGPL-3.0-only）发布。
 版权所有 (C) 2026 LCPD15。
 
-- Corresponding source / 对应源码: https://github.com/LCPD15/DXL/tree/v0.7
-- Source archive / 源码下载: https://github.com/LCPD15/DXL/archive/refs/tags/v0.7.zip
-- Build instructions / 构建说明: https://github.com/LCPD15/DXL/blob/v0.7/DEPENDENCIES.md
+- Project / 项目: https://github.com/LCPD15/DXL
+- [DXL 1.0 source code / 1.0 对应源码](https://github.com/LCPD15/DXL/tree/v1.0)
+- Build instructions in the source archive / 源码包内的构建说明: DEPENDENCIES.md
 
 The source includes DXL's UI, rendering integration, frame-generation compatibility,
 runtime route switching, shaders and build scripts. See LICENSE for the full terms.

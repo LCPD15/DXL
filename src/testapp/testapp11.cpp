@@ -46,6 +46,7 @@ std::unique_ptr<unsigned int[]> g_patternPixels;
 HWND g_window = nullptr;
 UINT g_width = 1280;
 UINT g_height = 720;
+bool g_fgFixture = false;
 bool g_useDebugLayer = false;
 bool g_readback = false;         // 诊断：每 N 帧把 backbuffer 回读到 CPU 打像素真值
 int g_seconds = 0;               // 0 = 一直跑；>0 = 到点自动退出（自动验收用）
@@ -57,7 +58,8 @@ bool g_pendingResize = false;
 void ParseArgs(int argc, wchar_t** argv) {
 	for (int i = 1; i < argc; ++i) {
 		const wchar_t* arg = argv[i];
-		if (wcscmp(arg, L"--debuglayer") == 0) g_useDebugLayer = true;
+		if (wcscmp(arg, L"--fg-fixture") == 0) g_fgFixture = true;
+        else if (wcscmp(arg, L"--debuglayer") == 0) g_useDebugLayer = true;
 		else if (wcscmp(arg, L"--readback") == 0) g_readback = true;
 		else if (wcscmp(arg, L"--seconds") == 0 && i + 1 < argc) g_seconds = _wtoi(argv[++i]);
 		else if (wcscmp(arg, L"--width") == 0 && i + 1 < argc) g_width = (UINT)_wtoi(argv[++i]);
@@ -102,6 +104,7 @@ bool InitWindow(HINSTANCE instance) {
 	g_width = client.right - client.left;
 	g_height = client.bottom - client.top;
 	ShowWindow(g_window, SW_SHOW);
+    if(g_fgFixture) ShowWindow(g_window,SW_SHOWNOACTIVATE);
 	return true;
 }
 
@@ -422,7 +425,8 @@ int main() {
 	ParseArgs(argc, argv);
 	LocalFree(argv);
 
-	if (!InitWindow(instance)) return 1;
+	if(g_fgFixture) SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    if (!InitWindow(instance)) return 1;
 	if (!InitDevice()) return 1;
 	if (!InitSwapChain()) return 1;
 	if (!AcquireBuffers()) return 1;
@@ -444,9 +448,14 @@ int main() {
 			if (!ResizeBuffers()) return 1;
 			printf("resized to %ux%u\n", g_width, g_height);
 		}
-		RenderFrame();
+		const auto frameStart = GetTickCount64();
+        RenderFrame();
 		if (g_readback && g_frame % 30 == 0) ReadbackOnce();
-		Present();
+        Present();
+        if (g_fgFixture) {
+            const auto elapsed = GetTickCount64() - frameStart;
+            if (elapsed < 66) Sleep(static_cast<DWORD>(66 - elapsed));
+        }
 		if (g_seconds > 0 && GetTickCount64() - start > ULONGLONG(g_seconds) * 1000) {
 			printf("time up after %u frames\n", g_frame);
 			// **真实游戏的退出路径：DestroyWindow → WM_DESTROY → PostQuitMessage

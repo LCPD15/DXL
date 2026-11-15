@@ -11,6 +11,7 @@ $required = @(
     (Join-Path $modelRoot 'yolo11n-seg.plan'),
     (Join-Path $DependencyRoot 'runtime/nvngx_dlssnr.dll'),
     (Join-Path $DependencyRoot 'dlss/include/nvsdk_ngx.h'),
+    (Join-Path $DependencyRoot 'dlss-fg-310.9.16/nvngx_dlssg.dll'),
     (Join-Path $DependencyRoot 'webview2/include/WebView2.h'))
 foreach ($file in $required) {
     if (!(Test-Path -LiteralPath $file -PathType Leaf) -or (Get-Item -LiteralPath $file).Length -eq 0) { throw "Dependency missing: $file. See DEPENDENCIES.md." }
@@ -24,7 +25,10 @@ function Stage([string]$Source,[string]$Relative) {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
     Copy-Item -LiteralPath $Source -Destination $destination -Force
 }
-foreach ($name in @('nvngx_dlssnr.dll','nvngx_dlss.dll','nvngx_dlssg.dll')) { Stage (Join-Path $DependencyRoot ('runtime/'+$name)) ('ngx/'+$name) }
+foreach ($name in @('nvngx_dlssnr.dll','nvngx_dlss.dll')) { Stage (Join-Path $DependencyRoot ('runtime/'+$name)) ('ngx/'+$name) }
+$fgDll = Join-Path $DependencyRoot 'dlss-fg-310.9.16/nvngx_dlssg.dll'
+if ((Get-FileHash -LiteralPath $fgDll -Algorithm SHA256).Hash -ne '8D59D49B36410DD6B62FEF2503A5871D347415BD85D943FA0848563A95DD50C7') { throw 'Invalid DLSS Frame Generation runtime. Run scripts/fetch-deps.ps1.' }
+Stage $fgDll 'ngx/nvngx_dlssg.dll'
 Stage (Join-Path $DependencyRoot 'reshade/runtime/DXL-ReShade.dll') 'DXL-ReShade.dll'
 foreach ($name in @('Neutral-16.png','README.md')) { Stage (Join-Path $SourceRoot ('lut/'+$name)) ('lut/'+$name) }
 foreach ($name in @('01-Sepia.fx','02-Letterbox.fx','ReShade.fxh','ReShadeUI.fxh','README.md')) { Stage (Join-Path $SourceRoot ('post-processing/'+$name)) ('post-processing/'+$name) }
@@ -60,4 +64,4 @@ foreach ($entry in @(
 Stage (Join-Path $DependencyRoot 'dlss/LICENSE.txt') 'licenses/NVIDIA-RTX-SDK-LICENSE.txt'
 Stage (Join-Path $DependencyRoot 'webview2/licenses/LICENSE.txt') 'licenses/WebView2-LICENSE.txt'
 Stage (Join-Path $DependencyRoot 'webview2/licenses/NOTICE.txt') 'licenses/WebView2-NOTICE.txt'
-Write-Output "PASS DXL 0.7 complete build: $OutDir"
+Write-Output "PASS DXL 1.0 complete build: $OutDir"

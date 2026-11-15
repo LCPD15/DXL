@@ -70,6 +70,8 @@ UINT g_width = 0;
 UINT g_height = 0;
 bool g_useDebugLayer = false;
 UINT g_syncInterval = 1;
+bool g_fgFixture = false;
+bool g_fgHalfSource = false;
 int g_resizeAfterSeconds = 0;
 int g_stopPresentingAfterSeconds = 0;
 int g_recreateAfterSeconds = 0;
@@ -517,6 +519,12 @@ void RenderFrame(UINT frame) {
 	rtv.ptr += SIZE_T(g_frameIndex) * g_rtvSize;
 
 	// 背景：缓慢变化的暗色，一眼能看出还在跑
+    const UINT visibleWidth = g_fgHalfSource ? g_width / 2 : g_width;
+    const UINT visibleHeight = g_fgHalfSource ? g_height / 2 : g_height;
+    if (g_fgHalfSource && FAILED(g_swapChain->SetSourceSize(visibleWidth, visibleHeight))) {
+        std::fprintf(stderr, "SetSourceSize failed\n");
+        ExitProcess(3);
+    }
 	const float t = float(frame) * 0.02f;
 	const float background[4]{
 		0.10f + 0.06f * sinf(t),
@@ -524,7 +532,14 @@ void RenderFrame(UINT frame) {
 		0.14f + 0.06f * sinf(t + 4.19f),
 		1.0f
 	};
-	g_commandList->ClearRenderTargetView(rtv, background, 0, nullptr);
+    if (g_fgHalfSource) {
+        const float outside[4]{1,0,0,1}; // visible red means the source rectangle leaked
+        const D3D12_RECT source{0, 0, LONG(visibleWidth), LONG(visibleHeight)};
+        g_commandList->ClearRenderTargetView(rtv, outside, 0, nullptr);
+        g_commandList->ClearRenderTargetView(rtv, background, 1, &source);
+    } else {
+        g_commandList->ClearRenderTargetView(rtv, background, 0, nullptr);
+    }
 
 	// 用带 rect 的 Clear 画图案，这样不用写 shader 和 PSO 也有真实内容。
 	// 两件事要靠它验证：
@@ -533,21 +548,23 @@ void RenderFrame(UINT frame) {
 	//      静止，移动的方块必然拖影。看到拖影就证明 DLSS 真的在做时域累积。
 	static constexpr UINT BAR_COUNT = 32;
 	D3D12_RECT bars[BAR_COUNT]{};
-	const LONG barStride = LONG(g_width / BAR_COUNT);
+	const LONG barStride = LONG(visibleWidth / BAR_COUNT);
 	const LONG barWidth = barStride > 3 ? barStride / 3 : 1;
 	for (UINT i = 0; i < BAR_COUNT; ++i) {
 		bars[i].left = LONG(i) * barStride;
 		bars[i].right = bars[i].left + barWidth;
-		bars[i].top = LONG(g_height) / 8;
-		bars[i].bottom = LONG(g_height) * 3 / 8;
+		bars[i].top = LONG(visibleHeight) / 8;
+		bars[i].bottom = LONG(visibleHeight) * 3 / 8;
 	}
 	const float barColor[4]{ 0.95f, 0.95f, 0.95f, 1.0f };
 	g_commandList->ClearRenderTargetView(rtv, barColor, BAR_COUNT, bars);
 
-	const LONG blockSize = LONG(g_height) / 8;
+	const LONG blockSize = LONG(visibleHeight) / 8;
 	const float phase = 0.5f + 0.5f * sinf(float(frame) * 0.03f);
-	const LONG blockLeft = LONG(phase * float(g_width - UINT(blockSize)));
-	const LONG blockTop = LONG(g_height) * 5 / 8;
+	// Fixed 16-pixel source positions let an external screen sampler recognize intermediate frames.
+    const LONG blockLeft = g_fgFixture ? LONG((frame % (1 + (visibleWidth - UINT(blockSize)) / 16)) * 16)
+        : LONG(phase * float(visibleWidth - UINT(blockSize)));
+	const LONG blockTop = LONG(visibleHeight) * 5 / 8;
 	const D3D12_RECT block{
 		blockLeft, blockTop, blockLeft + blockSize, blockTop + blockSize };
 	const float blockColor[4]{ 1.0f, 0.85f, 0.20f, 1.0f };
@@ -600,7 +617,11 @@ int wmain(int argc, wchar_t** argv) {
 			delaySeconds = _wtoi(argv[++i]);
 		} else if (_wcsicmp(argv[i], L"--debug") == 0) {
 			g_useDebugLayer = true;
-		} else if (_wcsicmp(argv[i], L"--novsync") == 0) {
+		} else if (_wcsicmp(argv[i], L"--fg-fixture") == 0) {
+            g_fgFixture = true;
+        } else if (_wcsicmp(argv[i], L"--fg-half-source") == 0) {
+            g_fgHalfSource = true;
+        } else if (_wcsicmp(argv[i], L"--novsync") == 0) {
 			g_syncInterval = 0;
 		} else if (_wcsicmp(argv[i], L"--resize") == 0 && i + 1 < argc) {
 			g_resizeAfterSeconds = _wtoi(argv[++i]);
@@ -635,12 +656,14 @@ int wmain(int argc, wchar_t** argv) {
 	wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
 	wc.lpszClassName = L"DXLTestApp";
 	RegisterClassExW(&wc);
+    if(g_fgFixture) SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 	g_window = CreateWindowExW(0, wc.lpszClassName,
 		L"DXL D3D12 test target", WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT, CW_USEDEFAULT, 1280, 720,
 		nullptr, nullptr, wc.hInstance, nullptr);
 	if (!g_window) return 1;
 	ShowWindow(g_window, SW_SHOW);
+    if(g_fgFixture) ShowWindow(g_window,SW_SHOWNOACTIVATE);
 
 	// #84 夹具：光标钉线程。**用 GetProcAddress 解析出来的指针调 SetCursorPos**
 	// —— 不走本进程的 IAT，注入方打在主 exe 上的指针锁定补丁拦不住它。
@@ -742,7 +765,12 @@ int wmain(int argc, wchar_t** argv) {
 			}
 		}
 
-		RenderFrame(frame++);
+		const auto frameStart = GetTickCount64();
+        RenderFrame(frame++);
+        if (g_fgFixture) {
+            const auto elapsed = GetTickCount64() - frameStart;
+            if (elapsed < 66) Sleep(static_cast<DWORD>(66 - elapsed));
+        }
 
 		// 每两秒报一次真实帧率。开关注入方的超分时看这个数字的变化，
 		// 比看画面更能说明开销。

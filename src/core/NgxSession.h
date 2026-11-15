@@ -8,6 +8,8 @@
 #include <windows.h>
 #include <d3d12.h>
 #include <string>
+#include <mutex>
+#include <atomic>
 
 namespace DXL {
 
@@ -36,9 +38,11 @@ public:
 	bool Initialize(ID3D12Device* device, HMODULE selfModule,
 		bool allowCoexist = false) noexcept;
 	void Shutdown() noexcept;
+    bool AcquireFrameGeneration(ID3D12Device* device, HMODULE module) noexcept;
+    void ReleaseFrameGeneration() noexcept;
 
 	bool IsInitialized() const noexcept { return _initialized; }
-	bool IsSuperSamplingAvailable() const noexcept { return _srAvailable; }
+	bool IsSuperSamplingAvailable() const noexcept { return _srOwner && _srAvailable; }
 	const char* UnavailableReason() const noexcept { return _reason; }
 	// 因为游戏自己在跑 DLSS 而被我们主动拦下了。UI 用它显示一句能操作的提示。
 	bool IsBlockedByGameNgx() const noexcept { return _blockedByGameNgx; }
@@ -47,13 +51,18 @@ private:
 	NgxSession() = default;
 
 	void QueryCapabilities() noexcept;
+    bool InitializeLocked(ID3D12Device* device, HMODULE selfModule, bool allowCoexist) noexcept;
+    void ShutdownLocked() noexcept;
+    std::mutex _sessionMutex;
+    unsigned _fgUsers = 0;
+    std::atomic<bool> _srOwner{false};
 
 	ID3D12Device* _device = nullptr;
 	HMODULE _selfModule = nullptr;
-	bool _initialized = false;
-	bool _srAvailable = false;
-	bool _blockedByGameNgx = false;
-	const char* _reason = "not initialised";
+	std::atomic<bool> _initialized{false};
+	std::atomic<bool> _srAvailable{false};
+	std::atomic<bool> _blockedByGameNgx{false};
+	std::atomic<const char*> _reason{"not initialised"};
 };
 
 }  // namespace DXL

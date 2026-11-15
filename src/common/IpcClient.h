@@ -5,6 +5,7 @@
 
 #include <windows.h>
 #include <cstdio>
+#include <cstddef>
 
 #include "IpcProtocol.h"
 
@@ -26,7 +27,7 @@ public:
 		_mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, name);
 		if (!_mapping) return false;
 		_status = static_cast<const Ipc::Status*>(MapViewOfFile(
-			_mapping, FILE_MAP_READ, 0, 0, sizeof(Ipc::Status)));
+			_mapping, FILE_MAP_READ, 0, 0, 0));
 		if (!_status) {
 			Close();
 			return false;
@@ -56,7 +57,19 @@ public:
 			const uint32_t before = _status->sequence;
 			if (before & 1u) continue;          // core 正在写
 			MemoryBarrier();
-			out = *_status;
+            // An already-running v13 game can outlive a launcher update.
+            if (_status->version < 14) {
+                out = {};
+                CopyMemory(&out, _status, offsetof(Ipc::Status, fgEnabled));
+            } else if (_status->version == 14) {
+                out = {};
+                CopyMemory(&out, _status, offsetof(Ipc::Status, fgMultiplier));
+            } else if (_status->version == 15) {
+                out = {};
+                CopyMemory(&out, _status, offsetof(Ipc::Status, fgInputFps));
+            } else {
+                out = *_status;
+            }
 			MemoryBarrier();
 			if (_status->sequence == before && out.magic == Ipc::MAGIC) return true;
 		}

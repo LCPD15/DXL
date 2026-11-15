@@ -17,7 +17,7 @@ namespace DXL::Ipc {
 inline constexpr uint32_t MAGIC = 0x35534C44;   // 'DLS5'
 // 2: 加了 DLSSNR 的计数器。UI 和 core 是一起构建的，所以只要两边同时更新，
 // 版本号在这里主要是给外部工具（scripts/probe-status.py）看的。
-inline constexpr uint32_t VERSION = 13;
+inline constexpr uint32_t VERSION = 16;
 
 inline constexpr wchar_t STATUS_MEMORY_BASE[] = L"Local\\DXL.Status";
 inline constexpr wchar_t COMMAND_PIPE_BASE[] = L"\\\\.\\pipe\\DXL.Command";
@@ -236,6 +236,16 @@ struct Status {
 	uint32_t nrParamSemanticDebug;
     uint32_t nrParamSemanticFlipY;
     float nrParamSemanticFeather;
+
+    // v14: DXL final-image frame generation, independent of the game's FG.
+    uint32_t fgEnabled;
+    uint32_t fgStatus;
+    uint64_t fgPresented; // generated frames submitted to the display
+    uint32_t fgMultiplier;
+    uint32_t fgMaxMultiplier; // 0 until queried on the active GPU
+    float fgInputFps;         // measured source presents per second
+    float fgOutputFps;        // successful real + generated presents per second
+    float fgOutputLatencyMs;  // real-frame arrival to its output Present return, -1 if unavailable
 };
 
 // UI -> core 的命令

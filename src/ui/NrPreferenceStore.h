@@ -41,10 +41,21 @@ inline std::string ReadForcedNrPreferences(const std::filesystem::path& profiles
         if (file == "default" || file.empty()) continue;
         SettingsReader settings;
         if (!settings.Load(it->path())) continue;
-        const bool value = settings.GetBool("nrForceCompatibility", false);
-        if (value != settings.GetBool("nrForceCompatibility", true)) continue;
+        std::string fields;
+        for (const auto key : {"nrForceCompatibility", "fgEnabled"}) {
+            const bool value = settings.GetBool(key, false);
+            if (value != settings.GetBool(key, true)) continue;
+            if (!fields.empty()) fields += ',';
+            fields += JsonScalar::Quote(key) + ':' + (value ? "true" : "false");
+        }
+        const float multiplier = settings.GetFloat("fgMultiplier", 0);
+        if (multiplier == 2 || multiplier == 3 || multiplier == 4) {
+            if (!fields.empty()) fields += ',';
+            fields += "\"fgMultiplier\":" + std::to_string(static_cast<int>(multiplier));
+        }
+        if (fields.empty()) continue;
         if (json.size() > 1) json += ',';
-        json += JsonScalar::Quote(file + ".json") + ':' + (value ? "true" : "false");
+        json += JsonScalar::Quote(file + ".json") + ":{" + fields + "}";
     }
     return json + '}';
 }

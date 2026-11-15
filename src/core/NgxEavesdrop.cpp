@@ -564,14 +564,28 @@ std::wstring ModulePath(HMODULE module) {
     path.resize(n); return path;
 }
 
+// The FG provider shipped next to DXL belongs to our own output pass. Counting
+// it as game FG would suspend NR on otherwise ordinary four-buffer chains.
+bool IsBundledFgProvider(HMODULE module) noexcept {
+    if (!module) return false;
+    static const std::wstring path = [] {
+        auto dll = ModulePath(CallerModule(reinterpret_cast<void*>(&IsBundledFgProvider)));
+        const auto slash = dll.find_last_of(L"\\/");
+        return slash == std::wstring::npos ? std::wstring{} : dll.substr(0, slash) + L"\\ngx\\nvngx_dlssg.dll";
+    }();
+    return !path.empty() && GetModuleHandleW(path.c_str()) == module;
+}
+
 void NoteFrameGenModule(HMODULE module, NgxModuleKind kind) {
-    if (IsFrameGen(kind)) g_observedFrameGenModule.store(module);
+    if (IsFrameGen(kind) && !IsBundledFgProvider(module)) g_observedFrameGenModule.store(module);
 }
 
 // Known FG DLLs can be preloaded; presence only enables the buffer-count
 // heuristic. Cached FG uses the full model path, never a shared .bin basename.
 bool HasFrameGenModule() noexcept {
-    if (GetModuleHandleW(L"nvngx_dlssg.dll") || GetModuleHandleW(L"sl.dlss_g.dll")) return true;
+    if (GetModuleHandleW(L"sl.dlss_g.dll")) return true;
+    const auto provider = GetModuleHandleW(L"nvngx_dlssg.dll");
+    if (provider && !IsBundledFgProvider(provider)) return true;
     const HMODULE cached = g_observedFrameGenModule.load();
     HMODULE alive = nullptr;
     if (!cached || !GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |

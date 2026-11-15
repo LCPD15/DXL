@@ -1,6 +1,6 @@
 # DXL — DLSS eXtended Loader
 
-[English](README.md) | **简体中文** · **版本 0.7**
+[English](README.md) | **简体中文** · **版本 1.0**
 
 DXL（DLSS eXtended Loader）基于我之前的 RE DLSS5 Load Mod 扩充，目的是尽可能方便地在各类游戏中启用 DLSS NR。对于支持的游戏，工具可获取原生运动矢量并与帧生成配合，提供更高质量的效果；具体兼容性取决于游戏。
 
@@ -12,6 +12,10 @@ DXL（DLSS eXtended Loader）基于我之前的 RE DLSS5 Load Mod 扩充，目�
 
 
 **强行兼容（工具配置页 / 游戏内 DLSSNR 页）**：仅当游戏内开关 NR 无效时尝试使用。此模式处理最终输出画面（包含游戏 UI），按游戏保存；关闭后恢复原来的 NR 路径。
+
+**DLSS 帧生成（实验性）**　在游戏配置页或游戏内 FG 页（End）手动开启，再打开总开关。倍率按游戏保存，可选显卡支持的 2×、3× 或 4×。在 D3D11 或 D3D12 窗口化、无边框模式下，FG 从最终画面补帧，并跟随游戏窗口的画面缩放。开启 NR 时，仅增强输入帧。
+
+![PotPlayer 采集卡画面开启 2× DLSS 帧生成，输入 30.0 FPS，输出 59.9 FPS](docs/images/potplayer-dlss-fg.png)
 
 ## 特征
 

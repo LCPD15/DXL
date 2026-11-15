@@ -3,6 +3,7 @@
 #include <nvsdk_ngx.h>
 #include <nvsdk_ngx_helpers.h>
 #include <filesystem>
+#include <tlhelp32.h>
 
 #include "../common/Log.h"
 
@@ -13,7 +14,7 @@ namespace {
 // 用自己的 project ID 而不是抄别人的。NGX 用它做 CMS/白名单映射，
 // 借用别人的 ID 是这次调查里在 Magpie 侧看到的做法，不适合一个新项目。
 constexpr char PROJECT_ID[] = "b7e4f2a1-6c39-4d58-9a2e-1f0c7d38b45a";
-constexpr char ENGINE_VERSION[] = "DXL-0.7.0";
+constexpr char ENGINE_VERSION[] = "DXL-1.0.0";
 
 // NGX 要一个可写目录放它自己的日志和缓存
 std::filesystem::path NgxDataDir() noexcept {
@@ -32,7 +33,7 @@ std::filesystem::path NgxRuntimeDir(HMODULE selfModule) noexcept {
 	std::error_code ec;
 	const std::filesystem::path dir =
 		std::filesystem::path(path).parent_path() / L"ngx";
-	return std::filesystem::exists(dir / L"nvngx_dlss.dll", ec) ? dir
+	return std::filesystem::is_directory(dir, ec) ? dir
 		: std::filesystem::path{};
 }
 
@@ -89,15 +90,40 @@ bool GameAlreadyOwnsNgx(std::string* detail) noexcept {
 		L"sl.dlss.dll",       // Streamline 的 DLSS 插件，开了才加载
 		L"sl.dlss_d.dll",     // Ray Reconstruction
 	};
-	for (const wchar_t* name : LIVE_DLSS_MARKERS) {
-		if (!GetModuleHandleW(name)) continue;
-		char narrow[64]{};
-		WideCharToMultiByte(CP_UTF8, 0, name, -1, narrow, sizeof(narrow) - 1,
-			nullptr, nullptr);
-		if (detail) *detail = narrow;
-		return true;
-	}
-	return false;
+	auto isMarker = [&](const wchar_t* candidate) {
+        for (auto marker : LIVE_DLSS_MARKERS)
+            if (_wcsicmp(candidate, marker) == 0) return true;
+        return false;
+    };
+    bool loaded = false;
+    for (auto marker : LIVE_DLSS_MARKERS)
+        loaded |= GetModuleHandleW(marker) != nullptr;
+    if (!loaded) return false;
+    HMODULE core = nullptr;
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        reinterpret_cast<LPCWSTR>(&GameAlreadyOwnsNgx), &core);
+    // Capability probing can leave our bundled SR runtime mapped after FG
+    // shutdown. Exempt only its exact installation path, even if a separate
+    // copy with the same basename also exists in the host process.
+    const auto bundled = NgxRuntimeDir(core) / L"nvngx_dlss.dll";
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId());
+    if (snapshot == INVALID_HANDLE_VALUE) return true;
+    MODULEENTRY32W e{};
+    e.dwSize = sizeof(e);
+    bool found = false;
+    if (!Module32FirstW(snapshot, &e)) found = true;
+    else do {
+        if (!isMarker(e.szModule) || _wcsicmp(e.szExePath, bundled.c_str()) == 0) continue;
+        if (detail) {
+            char name[64]{};
+            WideCharToMultiByte(CP_UTF8, 0, e.szModule, -1, name, sizeof(name)-1, nullptr, nullptr);
+            *detail = name;
+        }
+        found = true;
+        break;
+    } while (Module32NextW(snapshot, &e));
+    CloseHandle(snapshot);
+    return found;
 }
 
 NgxSession& NgxSession::Get() noexcept {
@@ -107,7 +133,30 @@ NgxSession& NgxSession::Get() noexcept {
 
 bool NgxSession::Initialize(
 	ID3D12Device* device, HMODULE selfModule, bool allowCoexist) noexcept {
-	if (_initialized) return true;
+	std::lock_guard lock(_sessionMutex);
+    if (!InitializeLocked(device, selfModule, allowCoexist)) return false;
+    _srOwner = true;
+    return true;
+}
+
+bool NgxSession::AcquireFrameGeneration(ID3D12Device* device, HMODULE module) noexcept {
+    std::lock_guard lock(_sessionMutex);
+    if (!InitializeLocked(device, module, false)) return false;
+    ++_fgUsers;
+    return true;
+}
+
+void NgxSession::ReleaseFrameGeneration() noexcept {
+    std::lock_guard lock(_sessionMutex);
+    if (_fgUsers && !--_fgUsers && !_srOwner) ShutdownLocked();
+}
+
+bool NgxSession::InitializeLocked(ID3D12Device* device, HMODULE selfModule, bool allowCoexist) noexcept {
+    if (_initialized) {
+        if (device == _device) return true;
+        _reason = "NGX is already in use on another D3D12 device";
+        return false;
+    }
 	if (!device) {
 		_reason = "no D3D12 device";
 		return false;
@@ -133,6 +182,7 @@ bool NgxSession::Initialize(
 			marker.c_str());
 	}
 
+	_blockedByGameNgx = false;
 	_selfModule = selfModule;
 
 	const std::filesystem::path dataDir = NgxDataDir();
@@ -144,7 +194,7 @@ bool NgxSession::Initialize(
 	if (!runtimeDirString.empty()) {
 		searchPaths[searchPathCount++] = runtimeDirString.c_str();
 	} else {
-		D5_LOG_WARN(L"no ngx\\nvngx_dlss.dll next to the core DLL; relying on the "
+		D5_LOG_WARN(L"no ngx directory next to the core DLL; relying on the "
 			L"driver store copy, which may not exist");
 	}
 	searchPaths[searchPathCount++] = dataDirString.c_str();
@@ -206,6 +256,12 @@ void NgxSession::QueryCapabilities() noexcept {
 }
 
 void NgxSession::Shutdown() noexcept {
+    std::lock_guard lock(_sessionMutex);
+    _srOwner = false;
+    if (!_fgUsers) ShutdownLocked();
+}
+
+void NgxSession::ShutdownLocked() noexcept {
 	if (!_initialized) return;
 	NVSDK_NGX_D3D12_Shutdown1(_device);
 	_initialized = false;

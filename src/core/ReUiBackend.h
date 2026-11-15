@@ -58,6 +58,7 @@ void FramePresent11(IDXGISwapChain* swapChain,
                     const std::function<void()>& buildUi);
 
 // Private accelerator image used by OpenGL / D3D9 capture.
-void FrameTexture11(ID3D11Texture2D* image, const std::function<void()>& buildUi);
+void FrameTexture11(ID3D11Texture2D* image, const std::function<void()>& buildUi,
+                    IDXGISwapChain* swapChain = nullptr);
 
 }  // namespace ReUi

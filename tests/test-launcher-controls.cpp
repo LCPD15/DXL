@@ -90,8 +90,10 @@ int wmain() {
     {std::ofstream(prefRoot/L"b.exe.params.json") << "{\"nrForceCompatibility\":false}";}
     {std::ofstream(prefRoot/L"c.exe.params.json") << "{\"nrIntensity\":0.5}";}
     {std::ofstream(prefRoot/L"default.params.json") << prefs;}
+    {std::ofstream(prefRoot/L"d.exe.params.json") << "{\"fgEnabled\":true}";}
     const auto snapshot=ReadForcedNrPreferences(prefRoot);
-    Check(snapshot.find("\"a.exe.json\":true")!=std::string::npos && snapshot.find("\"b.exe.json\":false")!=std::string::npos,"startup snapshot reads both durable on and off");
+    Check(snapshot.find(R"("d.exe.json":{"fgEnabled":true})")!=std::string::npos, "FG opt-in is read from the per-game overlay");
+    Check(snapshot.find("\"a.exe.json\":{\"nrForceCompatibility\":true")!=std::string::npos && snapshot.find("\"b.exe.json\":{\"nrForceCompatibility\":false")!=std::string::npos,"startup snapshot reads both durable on and off");
     Check(snapshot.find("c.exe")==std::string::npos && snapshot.find("default")==std::string::npos,"missing/default prefs do not override launcher settings");
     std::puts("PASS forced NR preferences: offline recovery, activation, per-game disk snapshot, unrelated settings preserved and invalid JSON rejected");
 
