@@ -27,7 +27,7 @@ function Save-DxlDownload([string]$Url,[string]$Path,[long]$ExpectedSize) {
 }
 
 function Get-DxlVersion([string]$Text) {
-    if ($Text -notmatch '^v?(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\.(0|[1-9]\d*))?(?:\.(0|[1-9]\d*))?$') { throw 'Invalid stable version' }
+    if ($Text -cnotmatch '\Av?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:\.(0|[1-9][0-9]*)){0,2}\z') { throw 'Invalid stable version' }
     $v = $Text.TrimStart('v').Split('.')
     while ($v.Count -lt 4) { $v += '0' }
     return [version]($v -join '.')
@@ -57,28 +57,44 @@ function Assert-DxlPath([string]$Root, [string]$Relative) {
     return $full
 }
 function Assert-DxlRelease($Release) {
+    foreach ($key in @('version','tag','name','url','sha256','body')) {
+        if ($Release.$key -isnot [string]) { throw "Invalid release field: $key" }
+    }
     $null = Get-DxlVersion $Release.version
+    if ($Release.version.StartsWith('v') -or $Release.tag -cne ('v'+$Release.version)) { throw 'Invalid release tag' }
     if ($Release.name -cne ('DXL-v'+$Release.version+'-win64.zip')) { throw 'Unexpected asset name' }
-    if ($Release.sha256 -notmatch '^[a-fA-F0-9]{64}$') { throw 'Missing SHA256' }
-    if ([long]$Release.size -le 0 -or [long]$Release.size -gt 2GB) { throw 'Unexpected package size' }
+    if ($Release.sha256 -cnotmatch '\A[0-9A-Fa-f]{64}\z') { throw 'Invalid SHA256' }
+    if (($Release.size -isnot [int] -and $Release.size -isnot [long]) -or $Release.size -le 0 -or $Release.size -gt 2GB) { throw 'Unexpected package size' }
     $expected = 'https://github.com/LCPD15/DXL/releases/download/'+$Release.tag+'/'+$Release.name
-    if ($Release.url -cne $expected -or (Get-DxlVersion $Release.tag) -ne (Get-DxlVersion $Release.version)) { throw 'Unexpected release URL' }
+    if ($Release.url -cne $expected) { throw 'Unexpected release URL' }
+}
+function Read-DxlReleaseStream([IO.Stream]$Stream) {
+    $bytes = [IO.MemoryStream]::new()
+    try {
+        $buffer = New-Object byte[] 8192
+        while (($count = $Stream.Read($buffer,0,$buffer.Length)) -gt 0) {
+            if ($bytes.Length + $count -gt 2MB) { throw 'Release manifest too large' }
+            $bytes.Write($buffer,0,$count)
+        }
+        # GitHub serves release assets as binary attachments. Decode UTF-8 explicitly on Windows PowerShell.
+        $json = [Text.UTF8Encoding]::new($false,$true).GetString($bytes.ToArray()).TrimStart([char]0xFEFF)
+        if (!$json.TrimStart().StartsWith('{')) { throw 'Expected a JSON release object' }
+        $release = ConvertFrom-Json -InputObject $json
+        Assert-DxlRelease $release
+        return $release
+    } finally { $bytes.Dispose() }
 }
 function Get-DxlRemote {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $headers = @{'User-Agent'='DXL-Updater';Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
-    $r = Invoke-RestMethod -Uri 'https://api.github.com/repos/LCPD15/DXL/releases/latest' -Headers $headers -TimeoutSec 20
-    if ($r.draft -or $r.prerelease) { return $null }
-    $null = Get-DxlVersion $r.tag_name
-    $version = $r.tag_name.TrimStart('v')
-    $name = 'DXL-v'+$version+'-win64.zip'
-    $assets = @($r.assets | Where-Object { $_.name -ceq $name -and $_.state -eq 'uploaded' })
-    if ($assets.Count -ne 1) { return $null }
-    $a = $assets[0]
-    if ($a.digest -notmatch '^sha256:([a-fA-F0-9]{64})$') { return $null }
-    $result = [pscustomobject]@{version=$version;tag=$r.tag_name;name=$name;url=$a.browser_download_url;size=[long]$a.size;sha256=$Matches[1];body=[string]$r.body}
-    Assert-DxlRelease $result
-    return $result
+    $request = [Net.HttpWebRequest]::Create('https://github.com/LCPD15/DXL/releases/latest/download/update.json')
+    $request.UserAgent = 'DXL-Updater'
+    $request.Timeout = $request.ReadWriteTimeout = 20000
+    $response = $request.GetResponse()
+    try {
+        if ($response.ResponseUri.Scheme -ne 'https') { throw 'Insecure release manifest redirect' }
+        if ($response.ContentLength -gt 2MB) { throw 'Release manifest too large' }
+        return Read-DxlReleaseStream $response.GetResponseStream()
+    } finally { $response.Dispose() }
 }
 function Test-DxlCached([string]$Cache, $Release) {
     try {
@@ -213,12 +229,16 @@ function Invoke-DxlUpdate([string]$RequestFile) {
             Remove-DxlExpired $cache $q.current
             $local=Get-DxlLocal $cache $q.current
             $remote=$null
-            try { $remote=Get-DxlRemote } catch { }
+            try { $remote=Get-DxlRemote } catch { $result.detail=$_.Exception.Message }
             $candidate=$local
-            if ($remote -and (Get-DxlVersion $remote.version) -gt $current -and (!$candidate -or (Get-DxlVersion $remote.version) -gt (Get-DxlVersion $candidate.version))) { $candidate=$remote }
+            if ($remote -and (Get-DxlVersion $remote.version) -gt $current -and (!$candidate -or (Get-DxlVersion $remote.version) -ge (Get-DxlVersion $candidate.version))) { $candidate=$remote }
             if ($candidate) {
                 Write-DxlJson (Join-Path $cache 'available.json') $candidate
-                $result=@{state=$(if (Test-DxlCached $cache $candidate) {'downloaded'} else {'available'});version=$candidate.version;body=$candidate.body;local=$true}
+                $cached = Test-DxlCached $cache $candidate
+                $result.state = if ($cached) {'downloaded'} else {'available'}
+                $result.version = $candidate.version
+                $result.body = $candidate.body
+                $result.local = $cached
             }
         } elseif ($q.action -in @('download','install')) {
             $r=Read-DxlJson (Join-Path $cache 'available.json')
@@ -227,7 +247,6 @@ function Invoke-DxlUpdate([string]$RequestFile) {
             if ((Get-DxlVersion $r.version) -le $current) { throw 'Update is not newer' }
             $archive=Assert-DxlPath $cache $r.name
             if ($q.action -eq 'download') {
-                Write-DxlJson ($archive+'.json') $r
                 if (!(Test-DxlCached $cache $r)) {
                     $part=$archive+'.part'
                     try {

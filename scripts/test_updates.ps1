@@ -19,6 +19,25 @@ $cache=Join-Path $root 'cache'; $null=New-Item -ItemType Directory -Path $cache
 $archive=Join-Path $cache 'DXL-v0.2-win64.zip'
 [IO.File]::WriteAllText($archive,'test cached archive')
 $release=[pscustomobject]@{version='0.2';tag='v0.2';name='DXL-v0.2-win64.zip';url='https://github.com/LCPD15/DXL/releases/download/v0.2/DXL-v0.2-win64.zip';size=(Get-Item $archive).Length;sha256=(Get-FileHash $archive).Hash;body='test notes'}
+function Read-FixtureManifest([string]$Json) {
+    $stream=[IO.MemoryStream]::new([Text.Encoding]::UTF8.GetBytes($Json))
+    try { Read-DxlReleaseStream $stream } finally { $stream.Dispose() }
+}
+$release.body='Test ' + [char]0x66F4 + [char]0x65B0
+$manifestJson=$release | ConvertTo-Json
+$parsed=Read-FixtureManifest ([char]0xFEFF+$manifestJson)
+Assert ($parsed.body -ceq $release.body) 'UTF-8 release notes changed'
+Reject { Read-FixtureManifest ('['+$manifestJson+']') } 'Array manifest accepted'
+Reject { Read-FixtureManifest (' ' * (2MB+1)) } 'Oversized manifest accepted'
+foreach ($bad in @(
+    @{key='tag';value='v0.2.0'},@{key='version';value="0.2`n"},@{key='sha256';value=('a' * 63)},
+    @{key='url';value='https://example.org/DXL-v0.2-win64.zip'},@{key='name';value='DXL-v0.2-source.zip'},
+    @{key='size';value=0},@{key='size';value=2.5},@{key='body';value=@('not a string')}
+)) {
+    $invalid=$manifestJson | ConvertFrom-Json
+    $invalid.($bad.key)=$bad.value
+    Reject { Read-FixtureManifest ($invalid | ConvertTo-Json) } ("Invalid manifest accepted: "+$bad.key)
+}
 Write-DxlJson ($archive+'.json') $release
 Assert ((Get-DxlLocal $cache '0.1').version -eq '0.2') 'Cached update missing'
 Assert ($null -eq (Get-DxlLocal $cache '0.2')) 'Equal version offered'
@@ -31,7 +50,8 @@ Invoke-DxlUpdate $request
 Assert ((Read-DxlJson (Join-Path $job 'result.json')).state -eq 'downloaded') 'Offline cache check failed'
 Write-DxlJson $request @{cache=$cache;current='0.2';action='check'}
 Invoke-DxlUpdate $request
-Assert ((Read-DxlJson (Join-Path $job 'result.json')).state -eq 'none') 'No-update was not silent'
+$offlineResult=Read-DxlJson (Join-Path $job 'result.json')
+Assert ($offlineResult.state -eq 'none' -and $offlineResult.detail -match 'Offline fixture') 'Missing offline check diagnostic'
 Assert (!(Test-Path $archive)) 'Expired package retained'
 [IO.File]::WriteAllText($archive,'damaged')
 Assert (!(Test-DxlCached $cache $release)) 'Corrupt cache accepted'
@@ -81,9 +101,17 @@ $downloadRelease=[pscustomobject]@{version='0.2';tag='v0.2';name='DXL-v0.2-win64
     function script:Get-DxlRemote { return $script:fixtureRelease }
     function script:Save-DxlDownload([string]$Url,[string]$Path,[long]$ExpectedSize) {Copy-Item -LiteralPath $script:fixtureSource -Destination $Path -Force}
 } $downloadRelease $goodZip
+Write-DxlJson $request @{cache=$cache;current='0.2';action='check'}
+Invoke-DxlUpdate $request
+$equalResult=Read-DxlJson (Join-Path $job 'result.json')
+Assert ($equalResult.state -eq 'none' -and !$equalResult.detail) 'Equal remote version triggered a prompt or an error'
+[IO.File]::WriteAllText($archive,'test cached archive')
+Write-DxlJson ($archive+'.json') $release
 Write-DxlJson $request @{cache=$cache;current='0.1';action='check'}
 Invoke-DxlUpdate $request
-Assert ((Read-DxlJson (Join-Path $job 'result.json')).state -eq 'available') 'Remote update not offered'
+$offer=Read-DxlJson (Join-Path $job 'result.json')
+Assert ($offer.state -eq 'available' -and !$offer.local -and $offer.body -eq $downloadRelease.body) 'Replaced remote ZIP incorrectly offered as cached'
+Assert ((Read-DxlJson (Join-Path $cache 'available.json')).sha256 -eq $downloadRelease.sha256) 'Outdated hash retained'
 Write-DxlJson $request @{cache=$cache;current='0.1';action='download';expected='0.2'}
 Invoke-DxlUpdate $request
 Assert ((Read-DxlJson (Join-Path $job 'result.json')).state -eq 'downloaded') 'Download did not complete'

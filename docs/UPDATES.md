@@ -26,11 +26,27 @@ DXL 退出，覆盖程序文件并自动重启。预检失败时保留工具窗�
 安装成功后自动删除已安装及更旧的 DXL 更新压缩包。游戏配置、偏好设置及
 安装目录内与 DXL 更新无关的文件会保留。
 
-## Release packaging
+## Release packaging / 发布打包
 
-Publish stable tags such as `v1.0` with a `DXL-v1.0-win64.zip` asset. The ZIP must
-contain the `DXL-v1.0/` folder and the manifest produced by `release_dxl.ps1`.
-The updater verifies GitHub's asset SHA256 digest, package manifest hashes and
-the executable's version. Pre-releases, source/model archives and older/equal
-versions are not installation candidates. Keep the updater executable and scripts
-in every subsequent complete package. Do not re-use a published version number.
+The updated 1.0 client reads `update.json` from the latest stable GitHub Release. Upload the complete
+versioned Windows ZIP and its matching `update.json` as separate release assets. Players already running
+the same version see no update prompt, including when its assets are replaced.
+
+新版 1.0 从 GitHub 最新正式版的附件读取 `update.json`。将带版本号的 Windows 完整包和配套的
+`update.json` 作为两个独立附件上传。同版本替换附件时，已安装该版本的玩家不会收到更新提示。
+
+After creating the ZIP, run this command with the UTF-8 release description. 打好 ZIP 后，用 UTF-8
+发布说明文件运行以下命令。
+
+```powershell
+python scripts/make_update_manifest.py DXL-v1.0-win64.zip release-notes.md
+```
+
+The ZIP must contain `DXL-v1.0/DXL.exe` and the package manifest from `release_dxl.ps1`, with the
+folder and manifest version matching the filename. The script writes `update.json` beside the ZIP.
+Upload the matching ZIP first and `update.json` last when replacing live assets. The client checks the
+ZIP size and SHA-256 from the release asset, then verifies package file hashes and the executable version.
+
+ZIP 内应包含 `DXL-v1.0/DXL.exe` 和 `release_dxl.ps1` 生成的包内清单，文件夹与清单的版本须与
+ZIP 文件名一致。脚本在 ZIP 旁生成 `update.json`。替换已发布的附件时，先传 ZIP，最后传
+`update.json`。客户端校验 ZIP 的大小和 SHA-256，解包后再核对包内文件哈希及程序版本。

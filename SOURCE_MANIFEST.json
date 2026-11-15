@@ -49,7 +49,7 @@
     },
     {
       "path": "docs/UPDATES.md",
-      "sha256": "837d59958a3785b5a4fb0d34b14e447aae64ac36dc1df8cef3f23a21ee6da006"
+      "sha256": "45722def069df97cf1e138ae42531a72be9d13bf2bd024fd720b586ffa21e75e"
     },
     {
       "path": "icon/icon.png",
@@ -194,6 +194,10 @@
     {
       "path": "scripts/import-settings.ps1",
       "sha256": "3119356ee140bf32a5a8ecfef6665666240edcbfb795e27cfcdb0e1a7d62ed6e"
+    },
+    {
+      "path": "scripts/make_update_manifest.py",
+      "sha256": "f2ffe8d6eab75e9ab94207263c6699fb68eda606e2ba07bf22ae02009b2a6642"
     },
     {
       "path": "scripts/paths.ps1",
@@ -345,7 +349,7 @@
     },
     {
       "path": "scripts/test_updates.ps1",
-      "sha256": "e97521c8b13fb2538cbd383cbb4e8b345911702039ee5e13ddbd41cea8a1b373"
+      "sha256": "a218b1abfb3d2a379fb43904eb6fecdccc37ad1a974662b7f307a5faa45c738b"
     },
     {
       "path": "scripts/test_vulkan_dlss.ps1",
@@ -1029,7 +1033,7 @@
     },
     {
       "path": "src/updater/UpdateEngine.psm1",
-      "sha256": "9363285e12014a750664b4e31187a163a512fea0c3907fd324ba063327b6efb4"
+      "sha256": "64434ec42c8977651d454358d7a92cf9766f545c22eb6e95d07afb378fab1497"
     },
     {
       "path": "tests/chain_child_policy.cpp",
