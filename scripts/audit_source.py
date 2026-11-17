@@ -8,7 +8,7 @@ DENIED_SUFFIXES = {".dll", ".exe", ".lib", ".obj", ".pdb", ".map", ".bin", ".pt"
 DENIED_DIRS = {"build", "runtime", "models", "diagnostics", "screenshots", "captures",
                "profiles", "user-data", "prototypes", ".claude", ".codex", "__pycache__"}
 ART = {"icon/icon.png", "src/ui/app.ico", "src/ui/web/app-icon.png", "src/ui/web/app-icon@2x.png",
-       "docs/images/dxl-interface.png", "docs/images/potplayer-dlss-fg.png", "lut/Neutral-16.png"}
+       "docs/images/dxl-interface.png", "docs/images/potplayer-dlss-fg.png", "docs/images/obs-dlss-fg.png", "lut/Neutral-16.png"}
 MEDIA = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".ico", ".mp4", ".ppm"}
 PATTERNS = {
     "personal Windows home": re.compile(r"[A-Za-z]:[\\/]+Users[\\/]+(?!Public\b|Default\b)[^\\/\s\"']+", re.I),

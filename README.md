@@ -16,6 +16,8 @@ DXL (DLSS eXtended Loader) expands on my previous RE DLSS5 Load Mod. It aims to 
 
 ![DLSS Frame Generation on a capture-card feed in PotPlayer, from 30.0 input FPS to 59.9 output FPS at 2×](docs/images/potplayer-dlss-fg.png)
 
+![DXL 1.1 DLSS Frame Generation overlay on an OBS capture-card preview](docs/images/obs-dlss-fg.png)
+
 ## Features
 
 - **Native motion vectors** — Uses the game's own DLSS motion data where supported, helping temporal processing follow the scene and reduce flicker.

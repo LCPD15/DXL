@@ -17,6 +17,8 @@ DXL（DLSS eXtended Loader）基于我之前的 RE DLSS5 Load Mod 扩充，目�
 
 ![PotPlayer 采集卡画面开启 2× DLSS 帧生成，输入 30.0 FPS，输出 59.9 FPS](docs/images/potplayer-dlss-fg.png)
 
+![OBS 采集卡预览中的 DXL 1.1 DLSS 帧生成浮层](docs/images/obs-dlss-fg.png)
+
 ## 特征
 
 - **真实运动矢量**——利用支持游戏自身的 DLSS 运动数据，让时间处理跟随场景，减少闪烁。

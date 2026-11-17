@@ -5,7 +5,7 @@
   "files": [
     {
       "path": ".gitignore",
-      "sha256": "81ee1ab537dd941dd8a7a504c3fd26189fdeca6a428e02a6cbe41174a67bf13d"
+      "sha256": "8e4da64f3047bbcec43612847d2dcd6527343dd5a1994ba0a3a9da6cfd823392"
     },
     {
       "path": "CHANGELOG.md",
@@ -34,6 +34,10 @@
     {
       "path": "docs/images/dxl-interface.png",
       "sha256": "6cd639b26a80bccd4e9706e982786bebbaed00d74cbefcdbe8c38d4875eb9ee0"
+    },
+    {
+      "path": "docs/images/obs-dlss-fg.png",
+      "sha256": "d1e8e85b7d69bb6fb101f3609de22927b04a74c19a7bc4fbbf25f2290da53ed2"
     },
     {
       "path": "docs/images/potplayer-dlss-fg.png",
@@ -133,15 +137,15 @@
     },
     {
       "path": "README.md",
-      "sha256": "8623c4305fd22b06efde90f434ef6054026cd7e350e1333c2d74e43c9acf70b7"
+      "sha256": "74e9388f00d83fe8d3f88cc28389eb10536e17fdb53211e5e0d4c9bd87a74dde"
     },
     {
       "path": "README_ZH.md",
-      "sha256": "b50905e2b02ce3527fce665edf756a2c0c254f17e266eb3f948f53bb226b84a6"
+      "sha256": "a20a2ab3e8e373044ea0f8aa96a317fc3afb79adfcc7441cb00b9da517c2eaa5"
     },
     {
       "path": "scripts/audit_source.py",
-      "sha256": "6aacd909165c9e71ff6df67ce076d43dad2f457de27897642bdbec19e0a2a26f"
+      "sha256": "c0f74b3abbf3b89db0e0efb2063afeb0b438cd40e60562b87adf119f96b453e1"
     },
     {
       "path": "scripts/build-semantic-runtime-tests.ps1",
@@ -181,7 +185,7 @@
     },
     {
       "path": "scripts/export_source.py",
-      "sha256": "53bbef98bff9203f1964ab9122f22a0ddc2b1d9613acc21fab3afafbd6dac956"
+      "sha256": "2b880acafe8de1f3e154f56eef49ebc007d7b0d8ddd32065ee95682ed824a27b"
     },
     {
       "path": "scripts/fetch-deps.ps1",

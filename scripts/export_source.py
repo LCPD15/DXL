@@ -15,7 +15,7 @@ VENDORS = {"imgui", "minhook", "fidelityfx", "pix", "tensorrt", "cuda-stub", "re
 TEXT_SUFFIXES = {".h", ".hpp", ".cpp", ".c", ".hlsl", ".fx", ".fxh", ".js", ".html", ".css", ".ps1", ".psm1", ".cmd",
                  ".py", ".md", ".txt", ".rc", ".asm", ".def", ".json"}
 ART = {"icon/icon.png", "src/ui/app.ico", "src/ui/web/app-icon.png", "src/ui/web/app-icon@2x.png", "lut/Neutral-16.png"}
-GUIDES = {"docs/DXL-Guide-ZH.docx", "docs/DXL-Guide-EN.docx", "docs/images/dxl-interface.png", "docs/images/potplayer-dlss-fg.png"}
+GUIDES = {"docs/DXL-Guide-ZH.docx", "docs/DXL-Guide-EN.docx", "docs/images/dxl-interface.png", "docs/images/potplayer-dlss-fg.png", "docs/images/obs-dlss-fg.png"}
 DEVELOPMENT_NOTES = {"docs/FRAME_GENERATION_FEASIBILITY.md", "docs/GRAPHICS_COMPAT_TESTS.md",
                      "docs/RDR2_PRESENT_RECURSION.md", "docs/STARTUP_DIAGNOSTICS.md",
                      "docs/VULKAN_DLSS_INVESTIGATION.md", "docs/PRESENTATION_INITIALIZATION.md"}
