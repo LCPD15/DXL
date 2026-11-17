@@ -1,3 +1,8 @@
+# 1.1
+
+- 修复 OBS 和 HDR 帧生成下的画面 bug。
+- Fixed visual bugs with OBS and HDR frame generation.
+
 # 1.0
 
 - 新增 DLSS 帧生成，支持游戏画面和通过 PotPlayer 播放的采集卡画面。

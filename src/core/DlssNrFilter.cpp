@@ -861,7 +861,7 @@ bool DlssNrFilter::CreateTextures(DXGI_FORMAT colorFormat, bool atEvaluate) noex
 		_ratio = CreateTexture(_device, _width, _height,
 			DXGI_FORMAT_R16G16B16A16_FLOAT, true,
 			D3D12_RESOURCE_STATE_UNORDERED_ACCESS, L"D5Q.NR.Ratio");
-        if (atEvaluate) {
+        if (atEvaluate || colorFormat == DXGI_FORMAT_R16G16B16A16_FLOAT) {
             _downsampled = CreateTexture(_device, _width, _height, colorFormat, true,
                 D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, L"D5Q.NR.LowHDR");
         }
@@ -3033,7 +3033,7 @@ void DlssNrFilter::ReportTiming(uint32_t slotIndex) noexcept {
 }
 
 bool DlssNrFilter::Execute(
-	const GpuImage& colorSource, const GpuImage& dest) noexcept {
+	const GpuImage& colorSource, const GpuImage& dest, bool linearDisplay) noexcept {
 	if (!_runNr) return ExecuteGrading(colorSource, dest);
 	if (_disabled || !_feature || !colorSource.IsValid() || !dest.IsValid()) {
 		return false;
@@ -3044,7 +3044,7 @@ bool DlssNrFilter::Execute(
 	// （sRGB 的代理 backbuffer），都得先拷到中转纹理再喂给 NGX
 	const bool aliased = colorSource.resource == dest.resource;
 	// 降分辨率时**必须**走 _colorIn —— 降采样的目标就是它。
-	const bool viaColorIn = _scaled || aliased ||
+	const bool viaColorIn = linearDisplay || _scaled || aliased ||
 		colorSource.resource->GetDesc().Format != _colorFormat;
 	if (viaColorIn && !_colorIn) return false;
 	if (_scaled && (!_fullOut || !_ratio)) return false;
@@ -3214,7 +3214,22 @@ bool DlssNrFilter::Execute(
 	// debug 视图开着时整段跳过 —— 画面就是那张假彩色图，不掺滤镜的效果。
 	const bool colorPrepared = !debugDrawn;
 	ID3D12Resource* ngxColor = nullptr;
-	if (!debugDrawn && _scaled) {
+	ID3D12Resource* hdrInput = _scaled ? _downsampled : colorSource.resource;
+    if (!debugDrawn && linearDisplay) {
+        if (!hdrInput) { commandList->Close(); return false; }
+        Barrier(commandList, colorSource.resource, colorSource.state, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        if (_scaled) {
+            Barrier(commandList, hdrInput, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            _passes.RecordBoxDownsample(commandList, colorSource.resource, hdrInput, _width, _height, float(_fullWidth)/_width);
+            Barrier(commandList, hdrInput, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        }
+        Barrier(commandList, _colorIn, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        if (!_passes.RecordEncode(commandList,hdrInput,_colorIn,_width,_height,1.f,_settings.toneGamma,CurveFlags())) {
+            commandList->Close(); return false;
+        }
+        Barrier(commandList, _colorIn, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        ngxColor = _colorIn;
+    } else if (!debugDrawn && _scaled) {
 		// **盒式降采样进 _colorIn**，不是拷。比例传源/目标（>1 表示在缩小），
 		// 着色器按这个 footprint 取平均 —— 双线性只混 2x2，非整数比例会折叠出摩尔纹，
 		// 而这张图正是要喂给 DLSSNR 的。
@@ -3307,7 +3322,16 @@ bool DlssNrFilter::Execute(
 	// 细节全部来自原生分辨率 —— 直接把低分结果插值放大会明显变软，
 	// 那等于用 DLSSNR 换来一张更糊的图。
 	ID3D12Resource* finalOut = debugDrawn && _scaled ? _fullOut : _output;
-	if (!debugDrawn && !_scaled && (_settings.colourStrength < 1.0f || _settings.selfLayers > 1)) {
+	if (!debugDrawn && linearDisplay) {
+        Barrier(commandList, _output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        Barrier(commandList, _decoded, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        if (!_passes.RecordDecodeRatio(commandList,hdrInput,_output,_decoded,_width,_height,1.f,_settings.toneGamma,
+            CurveFlags(),_scaled ? 1.f : _settings.colourStrength,_scaled ? 1 : _settings.selfLayers)) {
+            commandList->Close(); return false;
+        }
+        Barrier(commandList, _output, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        finalOut = _decoded;
+    } else if (!debugDrawn && !_scaled && (_settings.colourStrength < 1.0f || _settings.selfLayers > 1)) {
 		Barrier(commandList, _output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
 			D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		Barrier(commandList, _decoded, D3D12_RESOURCE_STATE_COPY_SOURCE,
@@ -3338,7 +3362,8 @@ bool DlssNrFilter::Execute(
 			Barrier(commandList, _output, D3D12_RESOURCE_STATE_COPY_SOURCE,
 				D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		}
-		_passes.RecordRatioMake(commandList, _output, _colorIn, _ratio,
+		if (linearDisplay) Barrier(commandList,_decoded,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        _passes.RecordRatioMake(commandList, linearDisplay ? _decoded : _output, linearDisplay ? hdrInput : _colorIn, _ratio,
 			_width, _height);
 		Barrier(commandList, _ratio, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
 			D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -3351,6 +3376,7 @@ bool DlssNrFilter::Execute(
 		Barrier(commandList, _output,
 			D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
 			D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		if (linearDisplay) Barrier(commandList,_decoded,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_SOURCE);
 		finalOut = _fullOut;
 	}
 
@@ -3402,7 +3428,7 @@ bool DlssNrFilter::Execute(
 		// 降分辨率那一路是**采样**原图（不是拷），所以它停在 NON_PIXEL_SHADER_RESOURCE。
 		// 这里报错的 before 状态会让调试层直接点名，别猜。
 		Barrier(commandList, colorSource.resource,
-			(viaColorIn && !_scaled) ? D3D12_RESOURCE_STATE_COPY_SOURCE
+			(viaColorIn && !_scaled && !linearDisplay) ? D3D12_RESOURCE_STATE_COPY_SOURCE
 				: D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
 			colorSource.state);
 	}

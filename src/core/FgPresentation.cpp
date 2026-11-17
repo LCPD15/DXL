@@ -1,5 +1,7 @@
+#include "ObsPreview.h"
 #include "FgPresentation.h"
 #include "PresentGeometry.h"
+#include "FgHdr10.h"
 #include "DlssFgBackend.h"
 #include "../common/Log.h"
 #include <dcomp.h>
@@ -269,16 +271,19 @@ struct FgPresentation::Session {
         if (!failed.exchange(true)) D5_LOG_WARN(L"DLSS FG: %hs failed (0x%08X)", stage, (unsigned)hr);
         status.store(4); wake.notify_all();
     }
+    FgHdr10 hdr10[2];
+    bool LinearHdr() const { return format == DXGI_FORMAT_R16G16B16A16_FLOAT && space == DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709; }
     bool Output() {
+        if (LinearHdr()) for (auto& conversion : hdr10) if (!conversion.Init(dev.Get(),width,height)) return false;
         ComPtr<IDXGIFactory2> factory;
         ComPtr<IDXGISwapChain1> output;
         DXGI_SWAP_CHAIN_DESC1 d{};
-        d.Width = width; d.Height = height; d.Format = format; d.SampleDesc.Count = 1;
+        d.Width = width; d.Height = height; d.Format = LinearHdr() ? DXGI_FORMAT_R10G10B10A2_UNORM : format; d.SampleDesc.Count = 1;
         d.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; d.BufferCount = 3;
         d.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL; d.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
         if (FAILED(lastHr = CreateDXGIFactory1(IID_PPV_ARGS(&factory))) ||
             FAILED(lastHr = factory->CreateSwapChainForComposition(queue.Get(), &d, nullptr, &output)) ||
-            FAILED(lastHr = output.As(&chain)) || FAILED(lastHr = chain->SetColorSpace1(space)) ||
+            FAILED(lastHr = output.As(&chain)) || FAILED(lastHr = chain->SetColorSpace1(LinearHdr() ? DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 : space)) ||
             FAILED(lastHr = DCompositionCreateDevice(nullptr, IID_PPV_ARGS(&comp))) ||
             FAILED(lastHr = comp->CreateTargetForHwnd(hwnd, FALSE, &target)) ||
             FAILED(lastHr = comp->CreateVisual(&visual)) || FAILED(lastHr = visual->SetContent(chain.Get()))) return false;
@@ -355,8 +360,14 @@ struct FgPresentation::Session {
                 outputMetrics.Reset();
                 previousMultiplier = mult;
             }
-            const bool generatedBatch = backend.Generate(queue.Get(), slot->frame.Get(), self, generated,
-                space == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020, mult);
+            ID3D12Resource* presentedFrame = slot->frame.Get();
+            if (LinearHdr()) {
+                auto& conversion = hdr10[slot - slots];
+                if (!conversion.Convert(queue.Get(),presentedFrame)) { Fail("scRGB to HDR10",E_FAIL); break; }
+                presentedFrame=conversion.image.Get();
+            }
+            const bool generatedBatch = backend.Generate(queue.Get(), presentedFrame, self, generated,
+                LinearHdr() || space == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020, mult);
             maxMultiplier.store(backend.MaxMultiplier());
             if (generatedBatch) {
                 const auto begin = Clock::now();
@@ -380,7 +391,7 @@ struct FgPresentation::Session {
                 Fail(error, E_FAIL); break;
             }
             if (!quit && visible) {
-                const bool real = Display(slot->frame.Get());
+                const bool real = Display(presentedFrame);
                 if (real) {
                     const auto submitted = Clock::now();
                     outputMetrics.Record(submitted,
@@ -445,6 +456,11 @@ void FgPresentation::Capture(Time received, IDXGISwapChain3* source, HWND hwnd, 
     }
     PresentGeometry g;
     if (!ReadPresentGeometry(source, hwnd, w, h, g)) { Stop(); status.store(3); return; }
+    const auto rect = ObsPreview::current;
+    if (rect.width > 0 && rect.height > 0 && UINT(rect.x+rect.width)<=g.width && UINT(rect.y+rect.height)<=g.height) {
+        g.x += rect.x; g.y += rect.y; g.width = rect.width; g.height = rect.height;
+        g.offsetX += rect.x*g.sx; g.offsetY += rect.y*g.sy;
+    }
     LogGeometry(source, hwnd, w, h, g);
     w = g.width; h = g.height;
     mult = std::clamp(mult, 2u, 4u);

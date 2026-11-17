@@ -2854,7 +2854,7 @@ document.getElementById('openNgxDirBtn').addEventListener('click', () => {
 /* ---------------- 启动 ---------------- */
 
 // 版本号写在一处，别在 HTML 里硬编码（之前 HTML 里那个 v0.4.0 早就过期了）
-const APP_VERSION = 'v1.0';
+const APP_VERSION = 'v1.1';
 window.addEventListener('dxl-language-changed', () => { renderLog(); renderHotkeyHints(); renderAdvice(lastStatus); });
 document.getElementById('brandVersion').textContent = APP_VERSION;
 document.getElementById('projectLink').addEventListener('click', event => {

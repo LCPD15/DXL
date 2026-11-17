@@ -55,6 +55,7 @@
 #include "ReUiBackend.h"
 #include "LegacyGraphics.h"
 #include "PresentationOwner.h"
+#include "ObsPreview.h"
 #include "PresentationFocus.h"
 #include "../common/NrParameterEdit.h"
 #include "PresentWriterTracker.h"
@@ -438,6 +439,7 @@ void CleanupDxl() noexcept {
     g_state.segMask.SetActive(false);
     const bool evaluateIdle = EvaluateGpuGate::Get().DrainForExit();
     if (!evaluateIdle) g_state.segMask.RetainForExit();
+    ObsPreview::Stop();
     g_state.segMask.TeardownForExit();
     ReUi::Shutdown();
     g_state.finalPost11.TeardownForExit();
@@ -1342,6 +1344,7 @@ bool DetectApiFromSwapChain(IDXGISwapChain* swapChain) noexcept {
         !AcceptDxgiPresentation(g_state.api, current.OutputWindow,
             current.BufferDesc.Width, current.BufferDesc.Height)) return false;
 
+    if (ObsPreview::Installed() && !ObsPreview::Select(current.OutputWindow, current.BufferDesc.Width, current.BufferDesc.Height)) return false;
 	// 夹具：故意复现上一版的引用泄漏
 	if (g_state.holdSwapChainRef && g_state.diagHeldSwapChain != swapChain) {
 		if (g_state.diagHeldSwapChain) g_state.diagHeldSwapChain->Release();
@@ -1910,12 +1913,7 @@ void RunFilters11(IDXGISwapChain* swapChain) noexcept {
     if (!g_state.nrFilter11.IsInitialized() || g_state.nrFilter11.IsDisabled()) return;
     UpdateSemanticMask();
     ID3D11Texture2D* backbuffer = nullptr;
-    UINT index = 0;
-    IDXGISwapChain3* chain3 = nullptr;
-    if (SUCCEEDED(swapChain->QueryInterface(IID_PPV_ARGS(&chain3)))) {
-        index = chain3->GetCurrentBackBufferIndex(); chain3->Release();
-    }
-    if (SUCCEEDED(swapChain->GetBuffer(index, IID_PPV_ARGS(&backbuffer)))) {
+    if (SUCCEEDED(swapChain->GetBuffer(0, IID_PPV_ARGS(&backbuffer)))) {
         g_state.nrFilter11.Execute(backbuffer, SceneColorSettings(g_state.nrSettings));
         backbuffer->Release();
     }
@@ -2472,7 +2470,7 @@ static void UiMarkSave() {
 }
 
 // 产品版本号（面板标题行下方显示）
-static const char* kUiVersion = "1.0";
+static const char* kUiVersion = "1.1";
 
 // ---- 中英双语参数说明（复用自早期插件版，参考 NVIDIA DLSS5 文章措辞）----
 static const char* UiText(const char* zh, const char* en) { return g_state.uiLanguage == 2 ? en : zh; }

@@ -1,3 +1,4 @@
+#include "ObsPreview.h"
 // DlssNrFilter11 的实现。头文件上有这条桥接架构的完整设计说明。
 
 #include "DlssNrFilter11.h"
@@ -387,8 +388,11 @@ bool DlssNrFilter11::Execute(
 		return false;
 	}
 	// 尺寸/格式变了重建共享纹理（fence 也重建——它们跟尺寸无关但一起干净）
-	if (desc.Width != _width || desc.Height != _height || desc.Format != _format) {
-		if (!CreateSharedTextures(desc.Width, desc.Height, desc.Format)) {
+	const auto rect = DXL::ObsPreview::current;
+    const bool crop = rect.width > 0 && rect.height > 0 && UINT(rect.x+rect.width)<=desc.Width && UINT(rect.y+rect.height)<=desc.Height;
+    const UINT width = crop ? UINT(rect.width) : desc.Width, height = crop ? UINT(rect.height) : desc.Height;
+    if (width != _width || height != _height || desc.Format != _format) {
+		if (!CreateSharedTextures(width, height, desc.Format)) {
 			return false;
 		}
 	}
@@ -412,7 +416,10 @@ bool DlssNrFilter11::Execute(
 
 	// Odd/even values share the 11->12 fence in strictly increasing order:
 	// 2v-1 after copy-in; 2v after copy-out. The even value is the resize/exit proof.
-	_context->CopyResource(_color11, backBuffer);
+	if (crop) {
+        const D3D11_BOX box{UINT(rect.x),UINT(rect.y),0,UINT(rect.x)+width,UINT(rect.y)+height,1};
+        _context->CopySubresourceRegion(_color11,0,0,0,0,backBuffer,0,&box);
+    } else _context->CopyResource(_color11, backBuffer);
 	_lastSharedWork = 2 * v - 1;
 	const HRESULT copyInSignal = _context4->Signal(_fence11to12_11, _lastSharedWork);
 	if (FAILED(copyInSignal)) {
@@ -439,7 +446,7 @@ bool DlssNrFilter11::Execute(
 	}
 	const GpuImage colorSrc{ _color12, D3D12_RESOURCE_STATE_COMMON };
 	const GpuImage outDest{ _out12, D3D12_RESOURCE_STATE_COMMON };
-	const bool filtered = _filter12.Execute(colorSrc, outDest);
+	const bool filtered = _filter12.Execute(colorSrc, outDest, ObsPreview::Installed() && desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT);
 	if (!filtered) {
 		// Missing/invalid user LUTs must not latch the entire graphics bridge off.
 		if (settings.enabled) Fail("滤镜 Execute 失败（D3D11 桥接）");
@@ -461,7 +468,8 @@ bool DlssNrFilter11::Execute(
 		Fail("D3D11 copy-out fence Wait failed");
 		return false;
 	}
-	if (filtered) _context->CopyResource(backBuffer, _out11);
+	if (filtered && crop) _context->CopySubresourceRegion(backBuffer,0,rect.x,rect.y,0,_out11,0,nullptr);
+    else if (filtered) _context->CopyResource(backBuffer, _out11);
 	_lastSharedWork = 2 * v;
 	if (FAILED(_context4->Signal(_fence11to12_11, _lastSharedWork))) {
 		_bridgeSyncFailed = true;

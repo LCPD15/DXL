@@ -237,7 +237,7 @@ public:
 
 	// colorSource 和 dest 可以是同一块资源（原地处理 backbuffer），
 	// 也可以让 dest 指向 Handoff()，把结果留在交接纹理里给下一级滤镜。
-	bool Execute(const GpuImage& colorSource, const GpuImage& dest) noexcept;
+	bool Execute(const GpuImage& colorSource, const GpuImage& dest, bool linearDisplay = false) noexcept;
 
 	// 在**游戏自己的命令列表**上跑一次，就地把游戏即将喂给 DLSS 的颜色处理掉。
 	//
